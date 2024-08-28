@@ -1,0 +1,10 @@
+(library
+ (name parsing)
+ (libraries core)
+ (preprocess
+  (pps ppx_jane)))
+
+(menhir
+ (modules parser))
+
+(ocamllex lexer)

@@ -1,0 +1,14 @@
+(library
+ (name codegen)
+ (libraries
+  core
+  typing
+  parsing
+  llvm
+  llvm.analysis
+  llvm.executionengine
+  llvm.target
+  llvm.scalar_opts
+  llvm.all_backends)
+ (preprocess
+  (pps ppx_jane)))
