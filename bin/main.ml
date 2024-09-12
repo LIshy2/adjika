@@ -3,11 +3,7 @@ open Pipeline
 open Phase
 open Analys.Capture
 
-let llvm_init () =
-  Llvm.enable_pretty_stacktrace ();
-  Llvm.install_fatal_error_handler (fun msg ->
-      print_endline ("FATAL_ERROR " ^ msg));
-  ()
+let llvm_init () = Llvm.enable_pretty_stacktrace ()
 
 let capture_handler = function
   | UnknownName (name, ctx) ->
@@ -15,17 +11,21 @@ let capture_handler = function
       print_endline ("Unbounded name " ^ name ^ "\n" ^ ctx_string ^ "\n")
   | UsedName name -> print_endline ("Name used more than once " ^ name ^ "\n\n")
 
-let compiler_pipeline =
+let compiler_pipeline args =
   pipeline (pure Parsing.Frontend.parse_toplevel)
   *> pure Typing.Infer.infer_program
   *> with_error Analys.Capture.capture_program capture_handler
   *> pure Analys.Address.connect
-  *> pure (Codegen.Compiler.ProgramCompiler.compile_program "example")
-  *> pure (Codegen.Compiler.Object.dump_object_file "tmp/output.o")
+  *> pure
+       (Codegen.Compiler.ProgramCompiler.compile_program
+          (Cli.Arguments.input_file args))
+  *> pure
+       (Codegen.Compiler.Object.dump_object_file
+          (Cli.Arguments.output_file args))
 
 let () =
   let _ = llvm_init () in
-  print_endline "Compiling tmp/example.adj";
-  let input_channel = In_channel.create "tmp/example.adj" in
-  let _ = execute input_channel compiler_pipeline in
+  let args = Cli.cli_parse () in
+  let input_channel = In_channel.create (Cli.Arguments.input_file args) in
+  let _ = execute input_channel (compiler_pipeline args) in
   ()
