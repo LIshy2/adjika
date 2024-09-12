@@ -8,6 +8,7 @@ type mono =
   | Operator of string * mono list
   | MailBox of string
   | Actor of string
+[@@deriving compare, sexp]
 
 type poly = Mono of mono | Quant of int list * mono
 

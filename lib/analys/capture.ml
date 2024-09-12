@@ -80,15 +80,13 @@ module NameContext = struct
     }
 end
 
-type name_check_error =
-  | UnknownName of string * NameContext.t
-  | UsedName of string
+type name_check_error = UnknownName of string | UsedName of string
 
 let rec capture_expr nctx = function
   | Texp.Var (name, t) ->
       let exists = NameContext.name_check nctx name in
       if exists then Result.Ok (Cexp.Var (name, t))
-      else Result.Error (UnknownName (name, nctx))
+      else Result.Error (UnknownName name)
   | Texp.Const (value, t) -> Result.Ok (Cexp.Const (value, t))
   | Texp.Oper (op, lhs, rhs, t) ->
       let%bind clhs = capture_expr nctx lhs in
@@ -169,7 +167,7 @@ let rec capture_expr nctx = function
       let%bind cstr = capture_expr nctx str in
       let%bind cname =
         if NameContext.field_check nctx name then Result.Ok name
-        else Result.Error (UnknownName (name, nctx))
+        else Result.Error (UnknownName name)
       in
       Result.Ok (Cexp.Field (cstr, cname, t))
 

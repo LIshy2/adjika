@@ -32,33 +32,36 @@ module Gen = struct
         replace replace_map mono
 end
 
-type mono_tcon = { instance : Type.mono; fields : Type.mono list }
+module Constructor = struct
+  type poly = { result : Type.poly; fields : Type.mono list }
+  type mono = { instance : Type.mono; fields : Type.mono list }
 
-type poly_tcon = {
-  result : Type.poly;
-  fun_type : Type.poly;
-  fields : Type.mono list;
-}
+  let poly result fields = { result; fields }
+  let mono instance fields = { instance; fields }
 
-let instantiate_con { result; fields; _ } =
-  match result with
-  | Type.Mono m -> { instance = m; fields }
-  | Type.Quant (ids, mono) ->
-      let replace_map =
-        Map.of_alist_exn
-          (module Int)
-          (List.map ids ~f:(fun id -> (id, Gen.new_var ())))
-      in
-      let result = Gen.replace replace_map mono in
-      {
-        instance = result;
-        fields = List.map fields ~f:(Gen.replace replace_map);
-      }
+  let instantiate { result; fields; _ } =
+    match result with
+    | Type.Mono m -> { instance = m; fields }
+    | Type.Quant (ids, mono) ->
+        let replace_map =
+          Map.of_alist_exn
+            (module Int)
+            (List.map ids ~f:(fun id -> (id, Gen.new_var ())))
+        in
+        let result = Gen.replace replace_map mono in
+        {
+          instance = result;
+          fields = List.map fields ~f:(Gen.replace replace_map);
+        }
+
+  let instance constructor = constructor.instance
+  let fields constructor = constructor.fields
+end
 
 type t = {
   local_env : (string, Type.poly, String.comparator_witness) Map.t;
   fields_env : (string, Type.poly, String.comparator_witness) Map.t;
-  constructors : (string, poly_tcon, String.comparator_witness) Map.t;
+  constructors : (string, Constructor.poly, String.comparator_witness) Map.t;
 }
 
 exception UnknownName of string
@@ -99,3 +102,8 @@ let constructor self name =
   match Map.find self.constructors name with
   | Some v -> v
   | None -> raise (UnknownName name)
+
+let apply_to_locals f self = { self with local_env = Map.map ~f self.local_env }
+
+let apply_to_fields f self =
+  { self with fields_env = Map.map ~f self.fields_env }

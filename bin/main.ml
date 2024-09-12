@@ -6,9 +6,7 @@ open Analys.Capture
 let llvm_init () = Llvm.enable_pretty_stacktrace ()
 
 let capture_handler = function
-  | UnknownName (name, ctx) ->
-      let ctx_string = String.concat ~sep:"; " (Set.to_list ctx.locals) in
-      print_endline ("Unbounded name " ^ name ^ "\n" ^ ctx_string ^ "\n")
+  | UnknownName name -> print_endline ("Unbounded name " ^ name)
   | UsedName name -> print_endline ("Name used more than once " ^ name ^ "\n\n")
 
 let compiler_pipeline args =

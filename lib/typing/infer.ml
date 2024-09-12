@@ -50,17 +50,13 @@ module Substitution = struct
         Texp.Apply
           (apply_ast sub f, List.map args ~f:(apply_ast sub), apply_poly sub t)
 
-  let apply_ctx self Tenv.{ local_env; fields_env; constructors } =
-    Tenv.
-      {
-        local_env = Map.map local_env ~f:(fun t -> apply_poly self t);
-        fields_env = Map.map fields_env ~f:(fun t -> apply_poly self t);
-        constructors;
-      }
+  let apply_ctx self tenv =
+    tenv
+    |> Tenv.apply_to_locals (apply_poly self)
+    |> Tenv.apply_to_fields (apply_poly self)
 
   let empty = Sub (Map.empty (module Int))
   let single tid pt = Sub (Map.singleton (module Int) tid pt)
-
 
   exception ComposeFail of int
 
@@ -202,13 +198,17 @@ let rec w te = function
                     Map.singleton (module String) name expected,
                     Texp.Deconstructor.Var name )
               | Ast.Deconstructor.Constructor (name, args) ->
-                  let con = Tenv.instantiate_con (Tenv.constructor te name) in
-                  let fields = List.map2_exn args con.fields ~f:extract in
+                  let con =
+                    Tenv.Constructor.instantiate (Tenv.constructor te name)
+                  in
+                  let fields =
+                    List.map2_exn args (Tenv.Constructor.fields con) ~f:extract
+                  in
                   let deconstructor =
                     Texp.Deconstructor.Constructor
                       ( name,
-                        List.map2_exn fields con.fields ~f:(fun (_, _, d) t ->
-                            (d, t)) )
+                        List.map2_exn fields (Tenv.Constructor.fields con)
+                          ~f:(fun (_, _, d) t -> (d, t)) )
                   in
                   let sub, env =
                     List.fold_left fields
@@ -217,7 +217,9 @@ let rec w te = function
                         let new_env = Map.merge_disjoint_exn names env_acc in
                         (sub_acc +!+ sub, new_env))
                   in
-                  (sub +!+ unify expected con.instance, env, deconstructor)
+                  ( sub +!+ unify expected (Tenv.Constructor.instance con),
+                    env,
+                    deconstructor )
             in
             let obj_type = Type.monotype (Texp.type_of tobj) in
             let sub, names, deconstructor =
@@ -266,7 +268,6 @@ let rec w te = function
       let typed_result, result_sub = w new_te result in
       let typed_defs = List.rev rnew_defs in
       (Texp.Block (typed_defs, typed_result), defs_sub +!+ result_sub)
-
 
 exception NotActor
 
@@ -341,7 +342,7 @@ let infer_handler te actor state_description handler =
 module EnvExtractor = struct
   module PartialEnv = struct
     type context = {
-      constructors : (string * Tenv.poly_tcon) list;
+      constructors : (string * Tenv.Constructor.poly) list;
       functions : (string * Type.poly) list;
       fields : (string * Type.poly) list;
     }
@@ -359,9 +360,9 @@ module EnvExtractor = struct
 
       let empty = { constructors = []; functions = []; fields = [] }
 
-      let new_constructor name result fun_type fields =
+      let new_constructor name result fields =
         {
-          constructors = [ (name, Tenv.{ result; fun_type; fields }) ];
+          constructors = [ (name, Tenv.Constructor.poly result fields) ];
           functions = [];
           fields = [];
         }
@@ -389,8 +390,7 @@ module EnvExtractor = struct
           let result = Type.Named name in
           let function_type = Type.Arrow (args, result) in
           acc
-          ++ new_constructor constructor.name (Type.Mono result)
-               (Type.Mono function_type) args
+          ++ new_constructor constructor.name (Type.Mono result) args
           ++ new_function constructor.name (Type.Mono function_type))
 
     let extract_poly_constructor name arguments constructors =
@@ -412,7 +412,6 @@ module EnvExtractor = struct
           acc
           ++ new_constructor constructor.name
                (Type.Quant (var_ids, result))
-               (Type.Quant (var_ids, function_type))
                args
           ++ new_function constructor.name (Type.Quant (var_ids, function_type)))
 
@@ -484,8 +483,7 @@ module EnvExtractor = struct
                  let result = Type.Actor actor.name in
                  let function_type = Type.Arrow (args, result) in
                  acc
-                 ++ new_constructor state.name (Type.Mono result)
-                      (Type.Mono function_type) args
+                 ++ new_constructor state.name (Type.Mono result) args
                  ++ new_function state.name (Type.Mono function_type)))
   end
 

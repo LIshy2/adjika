@@ -114,7 +114,7 @@ module TProgram = struct
     expr : 'e;
   }
 
-  type 'e t = {
+  type 'e program = {
     functions : 'e tfun list;
     types : (Type.mono, int) Ast.Datatype.t list;
     actors : Type.mono Ast.Actor.t list;
@@ -130,5 +130,3 @@ module TProgram = struct
 
   let tfun name arguments fun_type expr = { name; arguments; fun_type; expr }
 end
-
-

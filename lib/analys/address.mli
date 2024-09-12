@@ -1,3 +1,6 @@
+open Typing
+open Capture
+
 module Interactor : sig
   module Id : sig
     type t = Id of int [@@deriving sexp, compare]
@@ -39,15 +42,15 @@ end
 
 module AProgram : sig
   type t = {
-    functions : Capture.Cexp.t Typing.Texp.TProgram.tfun list;
-    types : (Typing.Type.mono, int) Parsing.Ast.Datatype.t list;
-    actors : Typing.Type.mono Parsing.Ast.Actor.t list;
-    interactors : (Capture.Cexp.t, Typing.Type.mono) Interactor.t list;
+    functions : Cexp.t Texp.TProgram.tfun list;
+    types : (Type.mono, int) Parsing.Ast.Datatype.t list;
+    actors : Type.mono Parsing.Ast.Actor.t list;
+    interactors : (Cexp.t, Type.mono) Interactor.t list;
   }
 end
 
 module InteractorTag : sig
-  type t = Id of (string * Typing.Type.mono)
+  type t = Id of (string * Type.mono)
 
   val actor : t -> string
 
@@ -58,7 +61,7 @@ end
 
 val handler_direction :
   (InteractorTag.t, Interactor.Id.t, 'a) Base.Map.t ->
-  (Capture.Cexp.t, 'b) Parsing.Ast.Handler.t ->
-  (Capture.Cexp.t, 'b) Interactor.handler
+  (Cexp.t, 'b) Parsing.Ast.Handler.t ->
+  (Cexp.t, 'b) Interactor.handler
 
-val connect : Capture.Cexp.t Typing.Texp.TProgram.t -> AProgram.t
+val connect : Cexp.t Texp.TProgram.program -> AProgram.t
