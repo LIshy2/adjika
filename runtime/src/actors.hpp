@@ -1,7 +1,8 @@
-#include "concurrentqueue.hpp"
+#include "third_party/concurrentqueue.hpp"
+#include "third_party/BS_thread_pool.hpp"
 #include <atomic>
 #include <iostream>
-#include "BS_thread_pool.hpp"
+
 
 
 template <typename T>
