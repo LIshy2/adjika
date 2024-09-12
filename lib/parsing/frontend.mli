@@ -1,3 +1,3 @@
 open Ast
 
-val parse_toplevel : In_channel.t -> (Expr.expr, TypeDecl.t) Program.t
+val parse_toplevel : In_channel.t -> (Expr.t, TypeDecl.t) Program.t

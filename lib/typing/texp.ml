@@ -1,15 +1,27 @@
 open Parsing
 open Core
 
+module Deconstructor = struct
+  type t = Var of string | Constructor of string * (t * Type.mono) list
+
+  let rec show = function
+    | Var name -> name
+    | Constructor (name, subs) ->
+        let inner =
+          List.map subs ~f:(fun (dec, t) -> show dec ^ ":" ^ Type.show_mono t)
+        in
+        name ^ "(" ^ String.concat ~sep:", " inner ^ ")"
+end
+
 type expr =
   | Var of string * Type.poly
   | Const of int * Type.poly
   | Oper of Ast.BinOp.t * expr * expr * Type.poly
-  | Block of expr Ast.Symbol.val_symbol list * expr
-  | Apply of expr * expr list * Type.poly * Type.poly
-  | PatMatch of expr * (Ast.Deconstructor.t * expr) list * Type.poly
+  | Block of expr Ast.Val.t list * expr
+  | Apply of expr * expr list * Type.poly
+  | PatMatch of expr * (Deconstructor.t * expr) list * Type.poly
   | Field of expr * string * Type.poly
-  | Lambda of (string * Type.poly) list * string list * expr * Type.poly
+  | Lambda of string list * expr * Type.poly
 
 let rec type_of = function
   | Var (_, t) -> t
@@ -18,8 +30,8 @@ let rec type_of = function
   | Block (_, result) -> type_of result
   | Field (_, _, t) -> t
   | PatMatch (_, _, t) -> t
-  | Lambda (_, _, _, t) -> t
-  | Apply (_, _, t, _) -> t
+  | Lambda (_, _, t) -> t
+  | Apply (_, _, t) -> t
 
 let rec show ?(indent = 0) exp =
   match exp with
@@ -29,7 +41,7 @@ let rec show ?(indent = 0) exp =
       let op_sym = match op with Plus -> "+" | Minus -> "-" | Mult -> "*" in
       show lhs ^ " " ^ op_sym ^ " " ^ show rhs
   | Block (defs, result) ->
-      let show_def Ast.Symbol.{ name; result } =
+      let show_def Ast.Val.{ name; result } =
         String.make ((indent + 1) * 4) ' '
         ^ name ^ ": "
         ^ Type.show_poly (type_of result)
@@ -43,7 +55,7 @@ let rec show ?(indent = 0) exp =
       ^ show result ^ "\n"
       ^ String.make (indent * 4) ' '
       ^ "}"
-  | Lambda (_, arguments, body, Mono (Arrow (args, result))) ->
+  | Lambda (arguments, body, Mono (Arrow (args, result))) ->
       let typed_args = List.zip_exn arguments args in
       let arg_strings =
         List.map typed_args ~f:(fun (name, tp) ->
@@ -52,7 +64,7 @@ let rec show ?(indent = 0) exp =
       "fun("
       ^ String.concat ~sep:", " arg_strings
       ^ ") -> " ^ Type.show_mono result ^ " = " ^ show body
-  | Lambda (_, arguments, body, Quant (_, Arrow (args, result))) ->
+  | Lambda (arguments, body, Quant (_, Arrow (args, result))) ->
       let typed_args = List.zip_exn arguments args in
       let arg_strings =
         List.map typed_args ~f:(fun (name, tp) ->
@@ -61,12 +73,23 @@ let rec show ?(indent = 0) exp =
       "fun("
       ^ String.concat ~sep:", " arg_strings
       ^ ") -> " ^ Type.show_mono result ^ " = " ^ show body
-  | Apply (fun_val, arg_vals, _, _) ->
+  | Apply (fun_val, arg_vals, t) ->
       let arg_string = List.map arg_vals ~f:show in
-      show fun_val ^ "(" ^ String.concat ~sep:", " arg_string ^ ")"
-  | _ ->
-      print_endline "AAAAA";
-      exit (-1)
+      show fun_val ^ "("
+      ^ String.concat ~sep:", " arg_string
+      ^ "): " ^ Type.show_poly t
+  | PatMatch (obj, deconstructors, _) ->
+      "match " ^ show obj ^ " {\n"
+      ^ String.concat ~sep:"\n"
+          (List.map deconstructors ~f:(fun (dec, expr) ->
+               let line =
+                 Deconstructor.show dec ^ " => "
+                 ^ show ~indent:(indent + 1) expr
+               in
+               String.make ((indent + 1) * 4) ' ' ^ line))
+      ^ "\n}"
+  | Field (obj, name, _) -> show obj ^ "." ^ name
+  | Lambda (_, _, t) -> "!!!wrong lambda type!!!" ^ Type.show_poly t
 
 let rec generealize ctx = function
   | Var (name, t) -> Var (name, Tenv.generealize ctx (Type.monotype t))
@@ -74,25 +97,38 @@ let rec generealize ctx = function
   | Oper (op, lhs, rhs, t) ->
       Oper (op, lhs, rhs, Tenv.generealize ctx (Type.monotype t))
   | Block (defs, result) -> Block (defs, generealize ctx result)
-  | Lambda (captures, args, body, t) ->
-      Lambda (captures, args, body, Tenv.generealize ctx (Type.monotype t))
+  | Lambda (args, body, t) ->
+      Lambda (args, body, Tenv.generealize ctx (Type.monotype t))
   | Field (str, field, t) ->
       Field (str, field, Tenv.generealize ctx (Type.monotype t))
   | PatMatch (obj, cases, t) ->
       PatMatch (obj, cases, Tenv.generealize ctx (Type.monotype t))
-  | Apply (fun_val, args_val, t, at) ->
-      Apply (fun_val, args_val, Tenv.generealize ctx (Type.monotype t), at)
+  | Apply (fun_val, args_val, t) ->
+      Apply (fun_val, args_val, Tenv.generealize ctx (Type.monotype t))
 
-module TypedProgram = struct
-  type typed_fun = {
+module TProgram = struct
+  type 'e tfun = {
     name : string;
     arguments : string list;
     fun_type : Type.poly;
-    expr : expr;
+    expr : 'e;
   }
 
-  type t = {
-    functions : typed_fun list;
-    types : Type.mono Ast.Symbol.type_symbol list;
+  type 'e t = {
+    functions : 'e tfun list;
+    types : (Type.mono, int) Ast.Datatype.t list;
+    actors : Type.mono Ast.Actor.t list;
+    handlers : ('e, Type.mono) Ast.Handler.t list;
   }
+
+  let show_functions program =
+    String.concat ~sep:"\n\n"
+      (List.map program.functions ~f:(fun { name; arguments; fun_type; expr } ->
+           "fun " ^ name ^ "[" ^ Type.show_poly fun_type ^ "]" ^ "("
+           ^ String.concat ~sep:", " arguments
+           ^ ")" ^ "=" ^ show expr))
+
+  let tfun name arguments fun_type expr = { name; arguments; fun_type; expr }
 end
+
+

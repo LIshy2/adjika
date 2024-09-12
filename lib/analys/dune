@@ -1,0 +1,5 @@
+(library
+ (name analys)
+ (libraries core typing parsing)
+ (preprocess
+  (pps ppx_jane)))

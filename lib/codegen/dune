@@ -3,6 +3,7 @@
  (libraries
   core
   typing
+  analys
   parsing
   llvm
   llvm.analysis

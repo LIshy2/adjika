@@ -1,7 +1,9 @@
-open Typing
+open Analys
 
 module ProgramCompiler : sig
-  val compile_program : string -> Texp.TypedProgram.t -> Llvm.llmodule
+  val compile_program : string -> Address.AProgram.t -> Llvm.llmodule
 end
 
-val dump_object_file : Llvm.llmodule -> string -> unit
+module Object : sig
+  val dump_object_file : string -> Llvm.llmodule -> unit
+end

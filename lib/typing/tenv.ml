@@ -1,7 +1,6 @@
 open Core
 
-
-module Gen = struct 
+module Gen = struct
   type type_id = int
 
   let tid_counter = ref 0
@@ -11,6 +10,17 @@ module Gen = struct
     tid_counter := result + 1;
     Type.TypeVar result
 
+  let rec replace map = function
+    | Type.Int -> Type.Int
+    | Type.TypeVar id ->
+        if Map.mem map id then Map.find_exn map id else Type.TypeVar id
+    | Type.Arrow (args, result) ->
+        Type.Arrow (List.map args ~f:(replace map), replace map result)
+    | Type.Named name -> Type.Named name
+    | Type.Operator (name, arguments) ->
+        Type.Operator (name, List.map arguments ~f:(replace map))
+    | t -> t
+
   let instantiate = function
     | Type.Mono m -> m
     | Type.Quant (ids, mono) ->
@@ -19,29 +29,36 @@ module Gen = struct
             (module Int)
             (List.map ids ~f:(fun id -> (id, new_var ())))
         in
-        let rec replace = function
-          | Type.Int -> Type.Int
-          | Type.TypeVar id ->
-              if List.mem ids id ~equal:(fun x y -> phys_equal x y) then
-                Map.find_exn replace_map id
-              else Type.TypeVar id
-          | Type.Arrow (args, result) ->
-              Type.Arrow (List.map args ~f:replace, replace result)
-          | custom -> custom
-        in
-        replace mono
-end 
+        replace replace_map mono
+end
 
-type tcon = {
-  result: Type.mono;
-  constructo_type: Type.poly;
-  fields: Type.mono list;
+type mono_tcon = { instance : Type.mono; fields : Type.mono list }
+
+type poly_tcon = {
+  result : Type.poly;
+  fun_type : Type.poly;
+  fields : Type.mono list;
 }
+
+let instantiate_con { result; fields; _ } =
+  match result with
+  | Type.Mono m -> { instance = m; fields }
+  | Type.Quant (ids, mono) ->
+      let replace_map =
+        Map.of_alist_exn
+          (module Int)
+          (List.map ids ~f:(fun id -> (id, Gen.new_var ())))
+      in
+      let result = Gen.replace replace_map mono in
+      {
+        instance = result;
+        fields = List.map fields ~f:(Gen.replace replace_map);
+      }
 
 type t = {
   local_env : (string, Type.poly, String.comparator_witness) Map.t;
   fields_env : (string, Type.poly, String.comparator_witness) Map.t;
-  constructors: (string, tcon, String.comparator_witness) Map.t;
+  constructors : (string, poly_tcon, String.comparator_witness) Map.t;
 }
 
 let find { local_env; _ } name =
@@ -51,7 +68,7 @@ let find { local_env; _ } name =
       print_endline ("Fatal error: unknown name " ^ name ^ " in typechecking");
       exit (-1)
 
-let add self name id =
+let add name id self =
   { self with local_env = Map.add_exn self.local_env ~key:name ~data:id }
 
 let empty =
@@ -61,11 +78,11 @@ let empty =
     constructors = Map.empty (module String);
   }
 
-let of_list ~locals ~fields =
+let of_list ~locals ~fields ~constructors =
   {
     local_env = Map.of_alist_exn (module String) locals;
     fields_env = Map.of_alist_exn (module String) fields;
-    constructors = Map.empty (module String);
+    constructors = Map.of_alist_exn (module String) constructors;
   }
 
 let generealize { local_env; _ } typ =
@@ -78,5 +95,4 @@ let generealize { local_env; _ } typ =
   if Set.length quants > 0 then Type.Quant (Set.to_list quants, typ)
   else Type.Mono typ
 
-let constructor self name = 
-  Map.find_exn self.constructors name 
+let constructor self name = Map.find_exn self.constructors name

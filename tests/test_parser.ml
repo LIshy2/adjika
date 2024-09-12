@@ -1,10 +1,11 @@
 open Core
-open Parsing
+open Parsing.Ast
 
 let ast_from_string s =
   let tokens = Lexing.from_string s in
-  try Ok (Ast.Program.from_toplevels (Parser.prog Lexer.read tokens))
-  with Parser.Error ->
+  try
+    Ok (Program.from_toplevels (Parsing.Parser.prog Parsing.Lexer.read tokens))
+  with Parsing.Parser.Error ->
     let pos = tokens.lex_curr_p in
     Error (pos.pos_fname, pos.pos_lnum, pos.pos_cnum - pos.pos_bol + 1)
 
@@ -12,63 +13,44 @@ let%test_unit "const_int_fun" =
   let ast = ast_from_string "fun constant() = 5" in
   let expected =
     Ok
-      (Ast.Program.from_toplevels
-         [
-           Ast.Toplevel.FunExpression
-             Ast.Symbol.
-               { name = "constant"; arguments = []; result = Ast.Expr.Const 5 };
-         ])
+      (Program.from_toplevels
+         [ FunExpression (Function.decl "constant" [] (Expr.Const 5)) ])
   in
-  [%test_eq:
-    ((Ast.Expr.expr, Ast.TypeDecl.t) Ast.Program.t, string * int * int) result]
-    ast expected
+  [%test_eq: ((Expr.t, TypeDecl.t) Program.t, string * int * int) result] ast
+    expected
 
 let%test_unit "id_fun" =
   let ast = ast_from_string "fun id(x) = x" in
   let expected =
     Ok
-      (Ast.Program.from_toplevels
-         [
-           Ast.Toplevel.FunExpression
-             Ast.Symbol.
-               { name = "id"; arguments = [ "x" ]; result = Ast.Expr.Var "x" };
-         ])
+      (Program.from_toplevels
+         [ Toplevel.FunExpression (Function.decl "id" [ "x" ] (Expr.Var "x")) ])
   in
-  [%test_eq:
-    ((Ast.Expr.expr, Ast.TypeDecl.t) Ast.Program.t, string * int * int) result]
-    ast expected
+  [%test_eq: ((Expr.t, TypeDecl.t) Program.t, string * int * int) result] ast
+    expected
 
 let%test_unit "arithmetic_expr_fun" =
   let ast = ast_from_string "fun arithmetic() = 12 + 4 * 3 + (5 + 2) * 12" in
   let expected =
     Ok
-      (Ast.Program.from_toplevels
+      (Program.from_toplevels
          [
-           Ast.Toplevel.FunExpression
-             Ast.Symbol.
-               {
-                 name = "arithmetic";
-                 arguments = [];
-                 result =
-                   Ast.Expr.Oper
-                     ( Ast.BinOp.Plus,
-                       Ast.Expr.Oper
-                         ( Ast.BinOp.Plus,
-                           Ast.Expr.Const 12,
-                           Ast.Expr.Oper
-                             (Ast.BinOp.Mult, Ast.Expr.Const 4, Ast.Expr.Const 3)
-                         ),
-                       Ast.Expr.Oper
-                         ( Ast.BinOp.Mult,
-                           Ast.Expr.Oper
-                             (Ast.BinOp.Plus, Ast.Expr.Const 5, Ast.Expr.Const 2),
-                           Ast.Expr.Const 12 ) );
-               };
+           Toplevel.FunExpression
+             (Function.decl "arithmetic" []
+                (Expr.Oper
+                   ( BinOp.Plus,
+                     Expr.Oper
+                       ( BinOp.Plus,
+                         Expr.Const 12,
+                         Expr.Oper (BinOp.Mult, Expr.Const 4, Expr.Const 3) ),
+                     Expr.Oper
+                       ( BinOp.Mult,
+                         Expr.Oper (BinOp.Plus, Expr.Const 5, Expr.Const 2),
+                         Expr.Const 12 ) )));
          ])
   in
-  [%test_eq:
-    ((Ast.Expr.expr, Ast.TypeDecl.t) Ast.Program.t, string * int * int) result]
-    ast expected
+  [%test_eq: ((Expr.t, TypeDecl.t) Program.t, string * int * int) result] ast
+    expected
 
 let%test_unit "block_expr_fun" =
   let ast =
@@ -84,111 +66,103 @@ let%test_unit "block_expr_fun" =
   in
   let expected =
     Ok
-      (Ast.Program.from_toplevels
+      (Program.from_toplevels
          [
-           Ast.Toplevel.FunExpression
-             Ast.Symbol.
+           Toplevel.FunExpression
+             Function.
                {
                  name = "arithmetic";
                  arguments = [];
                  result =
-                   Ast.Expr.Block
+                   Expr.Block
                      ( [
-                         Ast.Symbol.{ name = "x"; result = Ast.Expr.Const 5 };
-                         Ast.Symbol.{ name = "y"; result = Ast.Expr.Const 4 };
-                         Ast.Symbol.{ name = "z"; result = Ast.Expr.Const 2 };
-                         Ast.Symbol.
+                         Val.{ name = "x"; result = Expr.Const 5 };
+                         Val.{ name = "y"; result = Expr.Const 4 };
+                         Val.{ name = "z"; result = Expr.Const 2 };
+                         Val.
                            {
                              name = "result";
                              result =
-                               Ast.Expr.Oper
-                                 ( Ast.BinOp.Mult,
-                                   Ast.Expr.Oper
-                                     ( Ast.BinOp.Plus,
-                                       Ast.Expr.Var "x",
-                                       Ast.Expr.Var "y" ),
-                                   Ast.Expr.Var "z" );
+                               Expr.Oper
+                                 ( BinOp.Mult,
+                                   Expr.Oper
+                                     (BinOp.Plus, Expr.Var "x", Expr.Var "y"),
+                                   Expr.Var "z" );
                            };
                        ],
-                       Ast.Expr.Var "result" );
+                       Expr.Var "result" );
                };
          ])
   in
-  [%test_eq:
-    ((Ast.Expr.expr, Ast.TypeDecl.t) Ast.Program.t, string * int * int) result]
-    ast expected
+  [%test_eq: ((Expr.t, TypeDecl.t) Program.t, string * int * int) result] ast
+    expected
 
 let%test_unit "lambda_fun" =
   let ast = ast_from_string "fun arithmetic() = fun(x, y) = x + y" in
   let expected =
     Ok
-      (Ast.Program.from_toplevels
+      (Program.from_toplevels
          [
-           Ast.Toplevel.FunExpression
-             Ast.Symbol.
+           Toplevel.FunExpression
+             Function.
                {
                  name = "arithmetic";
                  arguments = [];
                  result =
-                   Ast.Expr.Lambda
+                   Expr.Lambda
                      ( [ "x"; "y" ],
-                       Ast.Expr.Oper
-                         (Ast.BinOp.Plus, Ast.Expr.Var "x", Ast.Expr.Var "y") );
+                       Expr.Oper (BinOp.Plus, Expr.Var "x", Expr.Var "y") );
                };
          ])
   in
-  [%test_eq:
-    ((Ast.Expr.expr, Ast.TypeDecl.t) Ast.Program.t, string * int * int) result]
-    ast expected
+  [%test_eq: ((Expr.t, TypeDecl.t) Program.t, string * int * int) result] ast
+    expected
 
 let%test_unit "lambda_fun" =
   let ast = ast_from_string "fun arithmetic() = fun(x, y) = x + y" in
   let expected =
     Ok
-      (Ast.Program.from_toplevels
+      (Program.from_toplevels
          [
-           Ast.Toplevel.FunExpression
-             Ast.Symbol.
+           Toplevel.FunExpression
+             Function.
                {
                  name = "arithmetic";
                  arguments = [];
                  result =
-                   Ast.Expr.Lambda
+                   Expr.Lambda
                      ( [ "x"; "y" ],
-                       Ast.Expr.Oper
-                         (Ast.BinOp.Plus, Ast.Expr.Var "x", Ast.Expr.Var "y") );
+                       Expr.Oper (BinOp.Plus, Expr.Var "x", Expr.Var "y") );
                };
          ])
   in
-  [%test_eq:
-    ((Ast.Expr.expr, Ast.TypeDecl.t) Ast.Program.t, string * int * int) result]
-    ast expected
+  [%test_eq: ((Expr.t, TypeDecl.t) Program.t, string * int * int) result] ast
+    expected
 
 let%test_unit "record_type" =
   let ast = ast_from_string "type rec = Point (x: int64, y: int64)" in
   let expected =
     Ok
-      (Ast.Program.from_toplevels
+      (Program.from_toplevels
          [
-           Ast.Toplevel.TypeDefenition
-             Ast.Symbol.
-               {
-                 name = "rec";
-                 constructors =
-                   [
-                     Ast.Symbol.
-                       {
-                         name = "Point";
-                         fields =
-                           [ ("x", Ast.TypeDecl.Int); ("y", Ast.TypeDecl.Int) ];
-                       };
-                   ];
-               };
+           Toplevel.TypeDefenition
+             Datatype.(
+               Mono
+                 {
+                   name = "rec";
+                   constructors =
+                     [
+                       Datatype.
+                         {
+                           name = "Point";
+                           fields = [ ("x", TypeDecl.Int); ("y", TypeDecl.Int) ];
+                         };
+                     ];
+                 });
          ])
   in
-  [%test_eq:
-    ((Ast.Expr.expr, Ast.TypeDecl.t) Ast.Program.t, string * int * int) result]
-    ast expected
+  [%test_eq: ((Expr.t, TypeDecl.t) Program.t, string * int * int) result] ast
+    expected
 
 let%test_unit "sum_type" =
   let ast =
@@ -198,40 +172,39 @@ let%test_unit "sum_type" =
   in
   let expected =
     Ok
-      (Ast.Program.from_toplevels
+      (Program.from_toplevels
          [
-           Ast.Toplevel.TypeDefenition
-             Ast.Symbol.
-               {
-                 name = "Geometry";
-                 constructors =
-                   [
-                     Ast.Symbol.
-                       {
-                         name = "Square";
-                         fields =
-                           [
-                             ("side1", Ast.TypeDecl.Int);
-                             ("side2", Ast.TypeDecl.Int);
-                           ];
-                       };
-                     Ast.Symbol.
-                       {
-                         name = "Triangle";
-                         fields =
-                           [
-                             ("side1", Ast.TypeDecl.Int);
-                             ("side2", Ast.TypeDecl.Int);
-                             ("side3", Ast.TypeDecl.Int);
-                           ];
-                       };
-                   ];
-               };
+           Toplevel.TypeDefenition
+             Datatype.(
+               Mono
+                 {
+                   name = "Geometry";
+                   constructors =
+                     [
+                       Datatype.
+                         {
+                           name = "Square";
+                           fields =
+                             [
+                               ("side1", TypeDecl.Int); ("side2", TypeDecl.Int);
+                             ];
+                         };
+                       Datatype.
+                         {
+                           name = "Triangle";
+                           fields =
+                             [
+                               ("side1", TypeDecl.Int);
+                               ("side2", TypeDecl.Int);
+                               ("side3", TypeDecl.Int);
+                             ];
+                         };
+                     ];
+                 });
          ])
   in
-  [%test_eq:
-    ((Ast.Expr.expr, Ast.TypeDecl.t) Ast.Program.t, string * int * int) result]
-    ast expected
+  [%test_eq: ((Expr.t, TypeDecl.t) Program.t, string * int * int) result] ast
+    expected
 
 let%test_unit "match_expr" =
   let ast =
@@ -248,66 +221,64 @@ let%test_unit "match_expr" =
   in
   let expected =
     Ok
-      (Ast.Program.from_toplevels
+      (Program.from_toplevels
          [
-           Ast.Toplevel.TypeDefenition
-             Ast.Symbol.
-               {
-                 name = "Geometry";
-                 constructors =
-                   [
-                     Ast.Symbol.
-                       {
-                         name = "Square";
-                         fields =
-                           [
-                             ("side1", Ast.TypeDecl.Int);
-                             ("side2", Ast.TypeDecl.Int);
-                           ];
-                       };
-                     Ast.Symbol.
-                       {
-                         name = "Triangle";
-                         fields =
-                           [
-                             ("side1", Ast.TypeDecl.Int);
-                             ("side2", Ast.TypeDecl.Int);
-                             ("side3", Ast.TypeDecl.Int);
-                           ];
-                       };
-                   ];
-               };
-           Ast.Toplevel.FunExpression
-             Ast.Symbol.
+           Toplevel.TypeDefenition
+             Datatype.(
+               Mono
+                 {
+                   name = "Geometry";
+                   constructors =
+                     [
+                       Datatype.
+                         {
+                           name = "Square";
+                           fields =
+                             [
+                               ("side1", TypeDecl.Int); ("side2", TypeDecl.Int);
+                             ];
+                         };
+                       Datatype.
+                         {
+                           name = "Triangle";
+                           fields =
+                             [
+                               ("side1", TypeDecl.Int);
+                               ("side2", TypeDecl.Int);
+                               ("side3", TypeDecl.Int);
+                             ];
+                         };
+                     ];
+                 });
+           Toplevel.FunExpression
+             Function.
                {
                  name = "detector";
                  arguments = [ "g" ];
                  result =
-                   Ast.Expr.PatMatch
-                     ( Ast.Expr.Var "g",
+                   Expr.PatMatch
+                     ( Expr.Var "g",
                        [
-                         ( Ast.Deconstructor.Constructor
+                         ( Deconstructor.Constructor
                              ( "Square",
                                [
-                                 Ast.Deconstructor.Var "s1";
-                                 Ast.Deconstructor.Var "s2";
+                                 Deconstructor.Var "s1"; Deconstructor.Var "s2";
                                ] ),
-                           Ast.Expr.Const 0 );
-                         ( Ast.Deconstructor.Constructor
+                           Expr.Const 0 );
+                         ( Deconstructor.Constructor
                              ( "Triangle",
                                [
-                                 Ast.Deconstructor.Var "s1";
-                                 Ast.Deconstructor.Var "s2";
-                                 Ast.Deconstructor.Var "s3";
+                                 Deconstructor.Var "s1";
+                                 Deconstructor.Var "s2";
+                                 Deconstructor.Var "s3";
                                ] ),
-                           Ast.Expr.Const 1 );
+                           Expr.Const 1 );
                        ] );
                };
          ])
   in
-  [%test_eq:
-    ((Ast.Expr.expr, Ast.TypeDecl.t) Ast.Program.t, string * int * int) result]
-    ast expected
+  [%test_eq: ((Expr.t, TypeDecl.t) Program.t, string * int * int) result] ast
+    expected
 
 let%test_unit "field_access" =
   let ast =
@@ -320,43 +291,42 @@ let%test_unit "field_access" =
   in
   let expected =
     Ok
-      (Ast.Program.from_toplevels
+      (Program.from_toplevels
          [
-           Ast.Toplevel.TypeDefenition
-             Ast.Symbol.
-               {
-                 name = "rec";
-                 constructors =
-                   [
-                     Ast.Symbol.
-                       {
-                         name = "Point";
-                         fields =
-                           [ ("x", Ast.TypeDecl.Int); ("y", Ast.TypeDecl.Int) ];
-                       };
-                   ];
-               };
-           Ast.Toplevel.FunExpression
-             Ast.Symbol.
+           Toplevel.TypeDefenition
+             Datatype.(
+               Mono
+                 {
+                   name = "rec";
+                   constructors =
+                     [
+                       Datatype.
+                         {
+                           name = "Point";
+                           fields = [ ("x", TypeDecl.Int); ("y", TypeDecl.Int) ];
+                         };
+                     ];
+                 });
+           Toplevel.FunExpression
+             Function.
                {
                  name = "point_sum";
                  arguments = [ "a"; "b" ];
                  result =
-                   Ast.Expr.Apply
-                     ( Ast.Expr.Var "Point",
+                   Expr.Apply
+                     ( Expr.Var "Point",
                        [
-                         Ast.Expr.Oper
-                           ( Ast.BinOp.Plus,
-                             Ast.Expr.Field (Ast.Expr.Var "a", "x"),
-                             Ast.Expr.Field (Ast.Expr.Var "b", "x") );
-                         Ast.Expr.Oper
-                           ( Ast.BinOp.Plus,
-                             Ast.Expr.Field (Ast.Expr.Var "a", "y"),
-                             Ast.Expr.Field (Ast.Expr.Var "b", "y") );
+                         Expr.Oper
+                           ( BinOp.Plus,
+                             Expr.Field (Expr.Var "a", "x"),
+                             Expr.Field (Expr.Var "b", "x") );
+                         Expr.Oper
+                           ( BinOp.Plus,
+                             Expr.Field (Expr.Var "a", "y"),
+                             Expr.Field (Expr.Var "b", "y") );
                        ] );
                };
          ])
   in
-  [%test_eq:
-    ((Ast.Expr.expr, Ast.TypeDecl.t) Ast.Program.t, string * int * int) result]
-    ast expected
+  [%test_eq: ((Expr.t, TypeDecl.t) Program.t, string * int * int) result] ast
+    expected

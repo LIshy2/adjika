@@ -1,11 +1,19 @@
 open Core
 
 module TypeDecl = struct
-  type t = Arrow of t list * t | Int
+  type t =
+    | Arrow of t list * t
+    | Int
+    | Custom of string
+    | Operator of string * t list
+    | MailBox of string
   [@@deriving sexp, compare]
 
   let arrow args res = Arrow (args, res)
   let int = Int
+  let custom name = Custom name
+  let operator name arguments = Operator (name, arguments)
+  let mailbox actor = MailBox actor
 end
 
 module Deconstructor = struct
@@ -16,36 +24,96 @@ module Deconstructor = struct
   let constructor name args = Constructor (name, args)
 end
 
-module Symbol = struct
-  type 'e fun_symbol = { name : string; arguments : string list; result : 'e }
+module Actor = struct
+  type 't state = { name : string; fields : (string * 't) list }
   [@@deriving sexp, compare]
-  type 'e val_symbol = { name : string; result : 'e }
+
+  type 't t = { name : string; states : 't state list }
   [@@deriving sexp, compare]
-  type 't con_symbol = { name : string; fields : (string * 't) list }
+
+  let state name fields = { name; fields }
+  let decl name states = { name; states }
+end
+
+module Handler = struct
+  type 'e statement =
+    | Spawn of { name : string; actor : 'e }
+    | Val of { name : string; result : 'e }
+    | Mutate of 'e
+    | Send of { message : 'e; mail : 'e }
   [@@deriving sexp, compare]
-  type 't type_symbol = { name : string; constructors : 't con_symbol list }
+
+  type ('e, 't) t = {
+    message_type : 't;
+    state : string;
+    body : 'e statement list;
+  }
   [@@deriving sexp, compare]
+
+  let spawn name actor = Spawn { name; actor }
+  let local name result = Val { name; result }
+  let mutate build = Mutate build
+  let send message mail = Send { message; mail }
+  let decl message_type state body = { message_type; state; body }
+end
+
+module Function = struct
+  type 'e t = { name : string; arguments : string list; result : 'e }
+  [@@deriving sexp, compare]
+
+  let decl name arguments result = { name; arguments; result }
+end
+
+module Val = struct
+  type 'e t = { name : string; result : 'e } [@@deriving sexp, compare]
+
+  let decl name result = { name; result }
+end
+
+module Datatype = struct
+  type 't constructor = { name : string; fields : (string * 't) list }
+  [@@deriving sexp, compare]
+
+  type ('t, 'a) t =
+    | Mono of { name : string; constructors : 't constructor list }
+    | Operator of {
+        name : string;
+        arguments : 'a list;
+        constructors : 't constructor list;
+      }
+  [@@deriving sexp, compare]
+
+  let constructor name fields = { name; fields }
+  let mono name constructors = Mono { name; constructors }
+
+  let operator name arguments constructors =
+    Operator { name; arguments; constructors }
 
   let field_names con = List.map con.fields ~f:(fun (name, _) -> name)
   let field_types con = List.map con.fields ~f:(fun (_, tpe) -> tpe)
-  let constructors_names ts = List.map ts.constructors ~f:(fun c -> c.name)
+
+  let constructors ts =
+    match ts with
+    | Mono { constructors; _ } -> constructors
+    | Operator { constructors; _ } -> constructors
+
+  let constructors_names ts = List.map (constructors ts) ~f:(fun c -> c.name)
 end
 
 module BinOp = struct
-  type t = Plus | Minus | Mult
-  [@@deriving sexp, compare]
+  type t = Plus | Minus | Mult [@@deriving sexp, compare]
 end
 
 module Expr = struct
-  type expr =
+  type t =
     | Var of string
     | Const of int
-    | Oper of BinOp.t * expr * expr
-    | Block of expr Symbol.val_symbol list * expr
-    | Field of expr * string
-    | Apply of expr * expr list
-    | Lambda of string list * expr
-    | PatMatch of expr * (Deconstructor.t * expr) list
+    | Oper of BinOp.t * t * t
+    | Block of t Val.t list * t
+    | Field of t * string
+    | Apply of t * t list
+    | Lambda of string list * t
+    | PatMatch of t * (Deconstructor.t * t) list
   [@@deriving sexp, compare]
 
   let var name = Var name
@@ -62,30 +130,30 @@ end
 
 module Toplevel = struct
   type ('e, 't) decl =
-    | FunExpression of 'e Symbol.fun_symbol
-    | TypeDefenition of 't Symbol.type_symbol
+    | FunExpression of 'e Function.t
+    | TypeDefenition of ('t, string) Datatype.t
+    | ActorDefition of 't Actor.t
+    | HandlerDefinition of ('e, 't) Handler.t
   [@@deriving sexp, compare]
-
-  let fundecl name arguments result = FunExpression { name; arguments; result }
-  let valdecl name result = Symbol.{ name; result }
-  let typedecl name constructors = TypeDefenition Symbol.{ name; constructors }
-  let condecl name fields = Symbol.{ name; fields }
 end
 
 module Program = struct
   type ('e, 't) t = {
-    functions : 'e Symbol.fun_symbol list;
-    types : 't Symbol.type_symbol list;
-  } [@@deriving sexp, compare]
+    functions : 'e Function.t list;
+    types : ('t, string) Datatype.t list;
+    actors : 't Actor.t list;
+    handlers : ('e, 't) Handler.t list;
+  }
+  [@@deriving sexp, compare]
 
   let from_toplevels toplevels =
-    let functions, types =
-      List.partition_map toplevels ~f:(fun d ->
-          match d with
-          | Toplevel.FunExpression f -> Either.First f
-          | Toplevel.TypeDefenition t -> Either.Second t)
+    let functions, types, actors, handlers =
+      List.fold_left toplevels ~init:([], [], [], []) ~f:(fun (f, t, a, h) tl ->
+          match tl with
+          | Toplevel.FunExpression fe -> (fe :: f, t, a, h)
+          | Toplevel.TypeDefenition td -> (f, td :: t, a, h)
+          | Toplevel.ActorDefition ad -> (f, t, ad :: a, h)
+          | Toplevel.HandlerDefinition hd -> (f, t, a, hd :: h))
     in
-    { functions; types }
+    { functions; types; actors; handlers }
 end
-
-
