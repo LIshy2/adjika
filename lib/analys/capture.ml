@@ -183,7 +183,8 @@ let capture_handler nctx handler =
         match statement with
         | Spawn { name; actor } ->
             let%map cactor = capture_expr ctx_acc actor in
-            (NameContext.add_local ctx_acc name, Spawn { name; actor = cactor } :: s_acc)
+            ( NameContext.add_local ctx_acc name,
+              Spawn { name; actor = cactor } :: s_acc )
         | Mutate e ->
             let%map ce = capture_expr ctx_acc e in
             (ctx_acc, Mutate ce :: s_acc)
@@ -199,7 +200,6 @@ let capture_handler nctx handler =
   { handler with body = List.rev rbody }
 
 let capture_program program =
-  print_endline (Texp.TProgram.show_functions program);
   let open Texp.TProgram in
   let toplevel_names =
     let function_names =

@@ -39,7 +39,8 @@ module ActorCompiler (LL : LowLevelCtx) = struct
       List.map state.fields ~f:(fun (_, t) -> TypeCtx.lltype_no_ctx t)
     in
     let constructor_type =
-      function_type (pointer_type LL.ctx) (Array.of_list fields)
+      function_type (pointer_type LL.ctx)
+        (Array.of_list (pointer_type LL.ctx :: fields))
     in
     let constructor_fun =
       define_function (state.name ^ ".constructor") constructor_type LL.md
@@ -51,11 +52,11 @@ module ActorCompiler (LL : LowLevelCtx) = struct
     let _ = build_store (const_int tag_type state_ind) tag_ptr bd in
     let _ =
       Array.iteri (params constructor_fun) ~f:(fun i field_value ->
-          let field_ptr =
-            build_struct_gep layout instance (i + 1) "field.ptr" bd
-          in
-          let _ = build_store field_value field_ptr bd in
-          ())
+          if i > 0 then
+            let field_ptr = build_struct_gep layout instance i "field.ptr" bd in
+            let _ = build_store field_value field_ptr bd in
+            ()
+          else ())
     in
     let _ = build_ret instance bd in
     constructor_fun

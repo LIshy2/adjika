@@ -9,10 +9,6 @@ open Function
 open Interactor
 open Analys.Address
 
-let debug_ir md =
-  print_endline "output";
-  Out_channel.write_all "debug.ll" ~data:(string_of_llmodule md)
-
 module TopLevelCompiler (LL : LowLevelCtx) = struct
   module LC = CompilerCtx (LL)
   module TLC = TopLevelCtx (LL)
@@ -152,7 +148,6 @@ module ProgramCompiler = struct
               ++ new_constructors constructors
               ++ new_checkers checkers ++ new_tag_types tags)
     in
-    debug_ir LL.md;
     let actor_env =
       List.fold_left program.actors ~init:types_env ~f:(fun acc actor ->
           let ActorComp.{ checkers; constructors; mutator; state_info; tag } =
@@ -165,17 +160,14 @@ module ProgramCompiler = struct
           ++ new_checkers checkers
           ++ new_constructors constructors)
     in
-    debug_ir LL.md;
     let functions_env =
       List.fold_left program.functions ~init:actor_env ~f:(fun acc typed_fun ->
           acc
           ++ new_function typed_fun.name (FunComp.declare_function typed_fun))
     in
-    debug_ir LL.md;
     let ctx = finalize functions_env in
     let _ = List.map program.functions ~f:(TopComp.compile_function ctx) in
     let _ = TopComp.compile_interactor ctx program.interactors in
-    debug_ir LL.md;
     Runtime.declare_main LL.ctx LL.md;
     LL.md
 end
