@@ -13,15 +13,15 @@ module Deconstructor = struct
         name ^ "(" ^ String.concat ~sep:", " inner ^ ")"
 end
 
-type expr =
+type t =
   | Var of string * Type.poly
   | Const of int * Type.poly
-  | Oper of Ast.BinOp.t * expr * expr * Type.poly
-  | Block of expr Ast.Val.t list * expr
-  | Apply of expr * expr list * Type.poly
-  | PatMatch of expr * (Deconstructor.t * expr) list * Type.poly
-  | Field of expr * string * Type.poly
-  | Lambda of string list * expr * Type.poly
+  | Oper of Ast.BinOp.t * t * t * Type.poly
+  | Block of t Ast.Val.t list * t
+  | Apply of t * t list * Type.poly
+  | PatMatch of t * (Deconstructor.t * t) list * Type.poly
+  | Field of t * string * Type.poly
+  | Lambda of string list * t * Type.poly
 
 let rec type_of = function
   | Var (_, t) -> t

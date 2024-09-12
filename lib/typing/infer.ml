@@ -61,26 +61,15 @@ module Substitution = struct
   let empty = Sub (Map.empty (module Int))
   let single tid pt = Sub (Map.singleton (module Int) tid pt)
 
-  let show (Sub self) =
-    Map.iteri self ~f:(fun ~key ~data ->
-        print_string (string_of_int key ^ ": " ^ Type.show_mono data ^ ", "));
-    if Map.is_empty self then print_endline "empty" else print_endline ""
 
-  exception ComposeFail
+  exception ComposeFail of int
 
   let compose (Sub lhs) (Sub rhs) =
     let updated_rhs = Map.map rhs ~f:(fun value -> apply (Sub lhs) value) in
     let updated_lhs = Map.map lhs ~f:(fun value -> apply (Sub rhs) value) in
     Sub
       (Map.merge_skewed updated_lhs updated_rhs ~combine:(fun ~key v1 v2 ->
-           if not (Type.compare_mono v1 v2 = 0) then (
-             print_endline "compose-fail";
-             show (Sub updated_lhs);
-             show (Sub updated_rhs);
-             print_endline
-               (string_of_int key ^ ": " ^ Type.show_mono v1 ^ ", "
-              ^ Type.show_mono v2);
-             raise ComposeFail)
+           if not (Type.compare_mono v1 v2 = 0) then raise (ComposeFail key)
            else v1))
 
   module Syntax = struct
@@ -90,17 +79,14 @@ end
 
 open Substitution.Syntax
 
-exception Uninifiable
+exception Uninifiable of (Type.mono * Type.mono)
 
 let rec unify type_1 type_2 =
   match (type_1, type_2) with
   | Type.Int, Type.Int -> Substitution.empty
   | Type.Named name1, Type.Named name2 ->
       if String.equal name1 name2 then Substitution.empty
-      else (
-        print_endline "Uninifiable types";
-        print_endline (Type.show_mono type_1 ^ "|" ^ Type.show_mono type_2);
-        raise Uninifiable)
+      else raise (Uninifiable (type_1, type_2))
   | Type.TypeVar id, x -> Substitution.single id x
   | x, Type.TypeVar id -> Substitution.single id x
   | Arrow (type_args1, result_type1), Arrow (type_args2, result_type2) ->
@@ -126,33 +112,20 @@ let rec unify type_1 type_2 =
             +!+ unify
                   (Substitution.apply acc arg1)
                   (Substitution.apply acc arg2))
-      else (
-        print_endline "Uninifiable types";
-        print_endline (Type.show_mono type_1 ^ "|" ^ Type.show_mono type_2);
-        raise Uninifiable)
+      else raise (Uninifiable (type_1, type_2))
   | Type.MailBox name1, Type.MailBox name2 ->
       if
         String.equal name1 name2 || String.equal name1 "?"
         || String.equal name2 "?"
       then Substitution.empty
-      else (
-        print_endline "Uninifiable types";
-        print_endline (Type.show_mono type_1 ^ "|" ^ Type.show_mono type_2);
-        raise Uninifiable)
+      else raise (Uninifiable (type_1, type_2))
   | Type.Actor name1, Type.Actor name2 ->
       if
         String.equal name1 name2 || String.equal name1 "?"
         || String.equal name2 "?"
       then Substitution.empty
-      else (
-        print_endline (string_of_bool (String.equal name2 "?"));
-        print_endline "Uninifiable types";
-        print_endline (Type.show_mono type_1 ^ "|" ^ Type.show_mono type_2);
-        raise Uninifiable)
-  | _ ->
-      print_endline "Uninifiable types";
-      print_endline (Type.show_mono type_1 ^ "|" ^ Type.show_mono type_2);
-      raise Uninifiable
+      else raise (Uninifiable (type_1, type_2))
+  | _ -> raise (Uninifiable (type_1, type_2))
 
 let rec w te = function
   | Ast.Expr.Var name ->
@@ -294,9 +267,12 @@ let rec w te = function
       let typed_defs = List.rev rnew_defs in
       (Texp.Block (typed_defs, typed_result), defs_sub +!+ result_sub)
 
+
+exception NotActor
+
 let actor_to_mailbox = function
   | Type.Actor name -> Type.MailBox name
-  | _ -> failwith "Not actor"
+  | _ -> raise NotActor
 
 let infer_handler te actor state_description handler =
   let open Ast.Handler in
@@ -319,7 +295,8 @@ let infer_handler te actor state_description handler =
             let state_type = Type.monotype (Texp.type_of typed_actor) in
             let sub = sub_spawn +!+ unify (Type.Actor "?") state_type in
             let actor_type =
-              Type.Mono (actor_to_mailbox (Type.monotype (Texp.type_of typed_actor)))
+              Type.Mono
+                (actor_to_mailbox (Type.monotype (Texp.type_of typed_actor)))
             in
             let update_env =
               Substitution.apply_ctx sub (te |> Tenv.add name actor_type)

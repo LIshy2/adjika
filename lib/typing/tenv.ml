@@ -61,12 +61,12 @@ type t = {
   constructors : (string, poly_tcon, String.comparator_witness) Map.t;
 }
 
+exception UnknownName of string
+
 let find { local_env; _ } name =
   match Map.find local_env name with
   | Some v -> v
-  | None ->
-      print_endline ("Fatal error: unknown name " ^ name ^ " in typechecking");
-      exit (-1)
+  | None -> raise (UnknownName name)
 
 let add name id self =
   { self with local_env = Map.add_exn self.local_env ~key:name ~data:id }
@@ -95,4 +95,7 @@ let generealize { local_env; _ } typ =
   if Set.length quants > 0 then Type.Quant (Set.to_list quants, typ)
   else Type.Mono typ
 
-let constructor self name = Map.find_exn self.constructors name
+let constructor self name =
+  match Map.find self.constructors name with
+  | Some v -> v
+  | None -> raise (UnknownName name)
