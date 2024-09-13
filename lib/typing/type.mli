@@ -10,7 +10,7 @@ type mono =
   | Actor of string
 [@@deriving compare, sexp]
 
-type poly = Mono of mono | Quant of int list * mono
+type poly = Mono of mono | Quant of int list * mono [@@deriving compare, sexp]
 
 val show_mono : mono -> string
 val show_poly : poly -> string

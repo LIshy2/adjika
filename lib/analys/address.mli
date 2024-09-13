@@ -1,12 +1,13 @@
 open Typing
 open Capture
+open Core
 
 module Interactor : sig
   module Id : sig
     type t = Id of int [@@deriving sexp, compare]
     type comparator_witness
 
-    val comparator : (t, comparator_witness) Base.Comparator.t
+    val comparator : (t, comparator_witness) Comparator.t
   end
 
   val id : int -> Id.t
@@ -32,9 +33,6 @@ module Interactor : sig
   }
   [@@deriving sexp, compare]
 
-  val compare :
-    ('e -> 'e -> int) -> ('t -> 't -> int) -> ('e, 't) t -> ('e, 't) t -> int
-
   val handler : 'a -> string -> 'b statement list -> ('b, 'a) handler
   val decl : string -> Id.t -> ('a, 'b) handler list -> ('a, 'b) t
   val message_type : ('a, 'b) t -> 'b
@@ -56,11 +54,11 @@ module InteractorTag : sig
 
   type comparator_witness
 
-  val comparator : (t, comparator_witness) Base.Comparator.t
+  val comparator : (t, comparator_witness) Comparator.t
 end
 
 val handler_direction :
-  (InteractorTag.t, Interactor.Id.t, 'a) Base.Map.t ->
+  (InteractorTag.t, Interactor.Id.t, 'a) Map.t ->
   (Cexp.t, 'b) Parsing.Ast.Handler.t ->
   (Cexp.t, 'b) Interactor.handler
 

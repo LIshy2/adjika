@@ -6,7 +6,10 @@ module Substitution = struct
   type t = Sub of (Tenv.Gen.type_id, Type.mono, Int.comparator_witness) Map.t
 
   let rec apply (Sub self) = function
-    | Type.TypeVar x -> Option.value (Map.find self x) ~default:(Type.TypeVar x)
+    | Type.TypeVar x -> (
+        match Map.find self x with
+        | Some v -> apply (Sub self) v
+        | None -> Type.TypeVar x)
     | Type.Int -> Type.Int
     | Type.Arrow (args, result) ->
         let mapped_args = List.map args ~f:(apply (Sub self)) in
@@ -170,14 +173,20 @@ let rec w te = function
       (Texp.Apply (typed_fun, typed_args, Mono application_type), composed_sub)
   | Ast.Expr.Oper (bop, lhs, rhs) ->
       let lt, l_sub = w te lhs in
-      let rt, r_sub = w te rhs in
-      let u_l = unify Type.Int (Type.monotype (Texp.type_of lt)) in
-      let u_r = unify Type.Int (Type.monotype (Texp.type_of rt)) in
+      let rt, r_sub = w (Substitution.apply_ctx l_sub te) rhs in
+      let u_l =
+        unify Type.Int
+          (Substitution.apply r_sub (Type.monotype (Texp.type_of lt)))
+      in
+      let u_r =
+        unify Type.Int
+          (Substitution.apply r_sub (Type.monotype (Texp.type_of rt)))
+      in
       let sub = u_l +!+ u_r +!+ l_sub +!+ r_sub in
       (Texp.Oper (bop, lt, rt, Mono Type.Int), sub)
   | Ast.Expr.Field (str, field) ->
       let str_t, str_sub = w te str in
-      let constructor = Tenv.Gen.instantiate (Tenv.find te field) in
+      let constructor = Tenv.Gen.instantiate (Tenv.find_field te field) in
       let new_type_id = Tenv.Gen.new_var () in
       let u =
         unify
@@ -371,7 +380,7 @@ module EnvExtractor = struct
         { constructors = []; functions = [ (name, fun_type) ]; fields = [] }
 
       let new_field name fun_type =
-        { constructors = []; functions = [ (name, fun_type) ]; fields = [] }
+        { constructors = []; functions = []; fields = [ (name, fun_type) ] }
 
       let ( ++ ) lhs rhs = concat lhs rhs
     end

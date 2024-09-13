@@ -148,7 +148,8 @@ module Program = struct
 
   let from_toplevels toplevels =
     let functions, types, actors, handlers =
-      List.fold_left toplevels ~init:([], [], [], []) ~f:(fun (f, t, a, h) tl ->
+      List.fold_right toplevels ~init:([], [], [], [])
+        ~f:(fun tl (f, t, a, h) ->
           match tl with
           | Toplevel.FunExpression fe -> (fe :: f, t, a, h)
           | Toplevel.TypeDefenition td -> (f, td :: t, a, h)

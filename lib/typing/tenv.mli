@@ -24,6 +24,7 @@ type t
 exception UnknownName of string
 
 val find : t -> string -> Type.poly
+val find_field : t -> string -> Type.poly
 val add : string -> Type.poly -> t -> t
 val empty : t
 

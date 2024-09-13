@@ -1,6 +1,5 @@
 open Core
 
-
 type mono =
   | TypeVar of int
   | Int
@@ -33,7 +32,10 @@ let show_poly = function
       ^ " " ^ show_mono m
 
 let rec freevars_mono = function
-  | TypeVar id -> Set.singleton (module Int) id
+  | Operator (_, args) ->
+      Set.union_list (module Int) (List.map args ~f:freevars_mono)
+  | TypeVar id ->
+      Set.singleton (module Int) id
   | Arrow (args, result) ->
       Set.union (freevars_mono result)
         (Set.union_list (module Int) (List.map args ~f:freevars_mono))

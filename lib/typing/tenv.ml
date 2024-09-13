@@ -71,7 +71,14 @@ let find { local_env; _ } name =
   | Some v -> v
   | None -> raise (UnknownName name)
 
+let find_field { fields_env; _ } name =
+  match Map.find fields_env name with
+  | Some v -> v
+  | None -> raise (UnknownName name)
+
 let add name id self =
+  (* print_endline name; *)
+  (* print_endline (Sexp.to_string (Map.sexp_of_m__t (module String) (Type.sexp_of_poly) self.local_env)); *)
   { self with local_env = Map.add_exn self.local_env ~key:name ~data:id }
 
 let empty =
