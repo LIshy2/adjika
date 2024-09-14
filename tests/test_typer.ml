@@ -43,7 +43,7 @@ let%test_unit "id_fun" =
   let typed_ast = Infer.infer_program ast in
   let fun_tpe = ProgramQuery.get_function_type typed_ast "id" in
   [%test_eq: Type.poly] fun_tpe
-    (Type.Quant ([ 2 ], Type.Arrow ([ Type.TypeVar 2 ], Type.TypeVar 2)))
+    (Type.Quant ([ 0 ], Type.Arrow ([ Type.TypeVar 0 ], Type.TypeVar 0)))
 
 let%test_unit "arithmetic_expr_fun" =
   let ast =
@@ -95,8 +95,7 @@ let%test_unit "returning_poly_lambda" =
   let fun_tpe = ProgramQuery.get_function_type typed_ast "poly_lambda" in
   [%test_eq: Type.poly] fun_tpe
     (Type.Quant
-       ( [ 12 ],
-         Type.Arrow ([], Type.Arrow ([ Type.TypeVar 12 ], Type.TypeVar 12)) ))
+       ([ 0 ], Type.Arrow ([], Type.Arrow ([ Type.TypeVar 0 ], Type.TypeVar 0))))
 
 let%test_unit "returning_poly_lambda_from_local" =
   let ast =
@@ -108,8 +107,7 @@ let%test_unit "returning_poly_lambda_from_local" =
   let fun_tpe = ProgramQuery.get_function_type typed_ast "poly_lambda" in
   [%test_eq: Type.poly] fun_tpe
     (Type.Quant
-       ( [ 15 ],
-         Type.Arrow ([], Type.Arrow ([ Type.TypeVar 15 ], Type.TypeVar 15)) ))
+       ([ 0 ], Type.Arrow ([], Type.Arrow ([ Type.TypeVar 0 ], Type.TypeVar 0))))
 
 let%test_unit "return_lambda_with_first_arg" =
   let ast =
@@ -131,13 +129,63 @@ let%test_unit "return_lambda_with_first_arg" =
   let po_tpe = ProgramQuery.get_function_type typed_ast "po" in
   [%test_eq: Type.poly] poly_tpe
     (Type.Quant
-       ( [ 20 ],
+       ( [ 0 ],
          Type.Arrow
-           ([ Type.Int ], Type.Arrow ([ Type.TypeVar 20 ], Type.TypeVar 20)) ));
+           ([ Type.Int ], Type.Arrow ([ Type.TypeVar 0 ], Type.TypeVar 0)) ));
   [%test_eq: Type.poly] po_tpe
     (Type.Quant
-       ( [ 22 ],
-         Type.Arrow ([], Type.Arrow ([ Type.TypeVar 22 ], Type.TypeVar 22)) ))
+       ([ 0 ], Type.Arrow ([], Type.Arrow ([ Type.TypeVar 0 ], Type.TypeVar 0))))
+
+let%test_unit "recursive_function" =
+  let ast =
+    unwrap_ast
+      (ast_from_string
+         "\n\
+         \    type Nat = Suc(x: Nat) | Zero()\n\
+         \    \n\
+         \    fun recur(n) = \n\
+         \      match n {\n\
+         \        is Suc(pred) => recur(pred) + 1\n\
+         \        is Zero() => 0\n\
+         \      }\n\
+         \    ")
+  in
+  let typed_ast =
+    try Infer.infer_program ast
+    with Substitution.Uninifiable (lhs, rhs) ->
+      print_endline ("error " ^ Type.show_mono lhs ^ " " ^ Type.show_mono rhs);
+      raise (Substitution.Uninifiable (lhs, rhs))
+  in
+  let poly_tpe = ProgramQuery.get_function_type typed_ast "recur" in
+  [%test_eq: Type.poly] poly_tpe
+    (Type.Mono (Type.Arrow ([ Type.Named "Nat" ], Type.Int)))
+
+let%test_unit "polymorphic_recursion_function" =
+  print_endline "test";
+  let ast =
+    unwrap_ast
+      (ast_from_string
+         "\n\
+         \         type List[A] = Cons(head: A, tail: List[A]) | Nil()\n\
+         \         \n\
+         \         fun map(list, f) = \n\
+         \           match list {\n\
+         \             is Cons(head, other) => Cons(f(head), map(other, f))\n\
+         \             is Nil() => Nil()\n\
+         \           }\n\
+         \         ")
+  in
+  let typed_ast = Infer.infer_program ast in
+  let poly_tpe = ProgramQuery.get_function_type typed_ast "map" in
+  [%test_eq: Type.poly] poly_tpe
+    (Type.Quant
+       ( [ 0; 1 ],
+         Type.Arrow
+           ( [
+               Type.Operator ("List", [ Type.TypeVar 0 ]);
+               Type.Arrow ([ Type.TypeVar 0 ], Type.TypeVar 1);
+             ],
+             Type.Operator ("List", [ Type.TypeVar 1 ]) ) ))
 
 let%test_unit "record_type" =
   let ast =
@@ -225,16 +273,80 @@ let%test_unit "poly_record_type" =
             Type.Int )))
 
 let%test_unit "match_expr" =
-  let _ =
-    ast_from_string
-      "type Geometry = Square (side1: int64, side2: int64) | Triangle (side1: \
-       int64, side2: int64, side3: int64)\n\
-      \       \n\
-      \       fun detector(g) = \n\
-      \         match g {\n\
-      \           is Square(s1, s2) => 0\n\
-      \           is Triangle(s1, s2, s3) => 1\n\
-      \         }      \n\
-      \       "
+  let ast =
+    unwrap_ast
+      (ast_from_string
+         "type Geometry = Square (side1: int64, side2: int64) | Triangle \
+          (side1: int64, side2: int64, side3: int64)\n\
+         \       \n\
+         \       fun detector(g) = \n\
+         \         match g {\n\
+         \           is Square(s1, s2) => s1 + s2\n\
+         \           is Triangle(s1, s2, s3) => s1 + s2 + s3\n\
+         \         }      \n\
+         \       ")
   in
-  ()
+  let typed_ast = Infer.infer_program ast in
+  let detector = ProgramQuery.get_function_type typed_ast "detector" in
+  [%test_eq: Type.poly] detector
+    (Type.Mono (Type.Arrow ([ Type.Named "Geometry" ], Type.Int)))
+
+let%test_unit "match_expr" =
+  let ast =
+    unwrap_ast
+      (ast_from_string
+         "type Geometry = Square (side1: int64, side2: int64) | Triangle \
+          (side1: int64, side2: int64, side3: int64)\n\
+         \       \n\
+         \       fun detector(g) = \n\
+         \         match g {\n\
+         \           is Square(s1, s2) => s1 + s2\n\
+         \           is Triangle(s1, s2, s3) => s1 + s2 + s3\n\
+         \         }      \n\
+         \       ")
+  in
+  let typed_ast = Infer.infer_program ast in
+  let detector = ProgramQuery.get_function_type typed_ast "detector" in
+  [%test_eq: Type.poly] detector
+    (Type.Mono (Type.Arrow ([ Type.Named "Geometry" ], Type.Int)))
+
+let%test_unit "poly_match_expr" =
+  let ast =
+    unwrap_ast
+      (ast_from_string
+         "type Either[L, R] = Left (value: L) | Right (value: R)\n\n\
+         \          fun un(e) =\n\
+         \            match e {\n\
+         \              is Left(l) => l\n\
+         \              is Right(r) => r\n\
+         \            }")
+  in
+  let typed_ast = Infer.infer_program ast in
+  let detector = ProgramQuery.get_function_type typed_ast "un" in
+  [%test_eq: Type.poly] detector
+    (Type.Quant
+       ( [ 0 ],
+         Type.Arrow
+           ( [ Type.Operator ("Either", [ Type.TypeVar 0; Type.TypeVar 0 ]) ],
+             Type.TypeVar 0 ) ))
+
+let%test_unit "match_with_unknown_type_var" =
+  let ast =
+    unwrap_ast
+      (ast_from_string
+         "type Either[L, R] = Left (value: L) | Right (value: R)\n\n\
+          type Result[L, R] = Error (value: L) | Success (value: R)\n\n\
+         \          fun un(e) =\n\
+         \            match e {\n\
+         \              is Left(l) => Success(l)\n\
+         \              is Right(r) => Error(r)\n\
+         \            }")
+  in
+  let typed_ast = Infer.infer_program ast in
+  let detector = ProgramQuery.get_function_type typed_ast "un" in
+  [%test_eq: Type.poly] detector
+    (Type.Quant
+       ( [ 0; 1 ],
+         Type.Arrow
+           ( [ Type.Operator ("Either", [ Type.TypeVar 0; Type.TypeVar 1 ]) ],
+             Type.Operator ("Result", [ Type.TypeVar 1; Type.TypeVar 0 ]) ) ))

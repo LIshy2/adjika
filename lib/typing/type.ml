@@ -10,7 +10,27 @@ type mono =
   | Actor of string
 [@@deriving compare, sexp]
 
-type poly = Mono of mono | Quant of int list * mono [@@deriving compare, sexp]
+type poly = Mono of mono | Quant of int list * mono [@@deriving sexp]
+
+let compare_poly lhs rhs =
+  match (lhs, rhs) with
+  | Mono l, Mono r -> compare_mono l r
+  | Quant (lid, lm), Quant (rid, rm) ->
+      let quant_id = Map.of_alist_exn (module Int) (List.zip_exn lid rid) in
+      let rec replace_left = function
+        | TypeVar id ->
+            TypeVar (Option.value ~default:id (Map.find quant_id id))
+        | Int -> Int
+        | Arrow (args, result) ->
+            Arrow (List.map ~f:replace_left args, replace_left result)
+        | Named name -> Named name
+        | Operator (name, args) -> Operator (name, List.map ~f:replace_left args)
+        | MailBox mail -> MailBox mail
+        | Actor name -> Actor name
+      in
+      compare_mono (replace_left lm) rm
+  | Mono _, Quant _ -> -1
+  | Quant _, Mono _ -> 1
 
 let rec show_mono = function
   | Arrow (args, res) ->
@@ -34,8 +54,7 @@ let show_poly = function
 let rec freevars_mono = function
   | Operator (_, args) ->
       Set.union_list (module Int) (List.map args ~f:freevars_mono)
-  | TypeVar id ->
-      Set.singleton (module Int) id
+  | TypeVar id -> Set.singleton (module Int) id
   | Arrow (args, result) ->
       Set.union (freevars_mono result)
         (Set.union_list (module Int) (List.map args ~f:freevars_mono))

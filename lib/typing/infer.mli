@@ -1,4 +1,3 @@
-exception Uninifiable of (Type.mono * Type.mono)
 exception NotActor
 
 val infer_program :
