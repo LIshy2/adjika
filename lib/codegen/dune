@@ -9,7 +9,6 @@
   llvm.analysis
   llvm.executionengine
   llvm.target
-  llvm.scalar_opts
   llvm.all_backends)
  (preprocess
   (pps ppx_jane)))
