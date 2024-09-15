@@ -13,6 +13,8 @@ depends: [
   "ocaml"
   "dune" {>= "3.16"}
   "odoc" {with-doc}
+  "core"
+  "llvm"  
 ]
 build: [
   ["dune" "subst"] {dev}
