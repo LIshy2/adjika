@@ -24,6 +24,8 @@ jobs:
         uses: ocaml/setup-ocaml@v3
         with:
           ocaml-compiler: 5
+      
+      - run: apt install -y llvm
 
       - run: opam install . --deps-only --no-depexts --with-test
 
