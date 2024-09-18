@@ -121,21 +121,22 @@ module PartialEnv (LL : LowLevelCtx) = struct
 end
 
 module ProgramCompiler = struct
-  module LL : LowLevelCtx = struct
-    let ctx = create_context ()
-    let md = create_module ctx "example"
-    let data_layout = DataLayout.of_string (data_layout md)
-  end
+  let ll name =
+    (module struct
+      let ctx = create_context ()
+      let md = create_module ctx name
+      let data_layout = DataLayout.of_string (data_layout md)
+    end : LowLevelCtx)
 
-  module TypeMap = PolyCtx (LL)
-  module TLC = TopLevelCtx (LL)
-  module TopComp = TopLevelCompiler (LL)
-  module ActorComp = ActorCompiler (LL)
-  module FunComp = FunctionCompiler (LL)
-  module PE = PartialEnv (LL)
-  open PE.Syntax
-
-  let compile_program _ program =
+  let compile_program name program =
+    let (module LL) = ll name in
+    let module TypeMap = PolyCtx (LL) in
+    let module TLC = TopLevelCtx (LL) in
+    let module TopComp = TopLevelCompiler (LL) in
+    let module ActorComp = ActorCompiler (LL) in
+    let module FunComp = FunctionCompiler (LL) in
+    let module PE = PartialEnv (LL) in
+    let open PE.Syntax in
     let open AProgram in
     let types_env =
       List.fold_left program.types ~init:PE.empty ~f:(fun acc t ->

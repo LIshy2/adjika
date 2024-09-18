@@ -161,7 +161,6 @@ let%test_unit "recursive_function" =
     (Type.Mono (Type.Arrow ([ Type.Named "Nat" ], Type.Int)))
 
 let%test_unit "polymorphic_recursion_function" =
-  print_endline "test";
   let ast =
     unwrap_ast
       (ast_from_string
@@ -350,3 +349,24 @@ let%test_unit "match_with_unknown_type_var" =
          Type.Arrow
            ( [ Type.Operator ("Either", [ Type.TypeVar 0; Type.TypeVar 1 ]) ],
              Type.Operator ("Result", [ Type.TypeVar 1; Type.TypeVar 0 ]) ) ))
+
+let%test_unit "polymorhipc_with_extra_type_var" =
+  let ast =
+    unwrap_ast
+      (ast_from_string
+         "fun apply(f, a) = f(a)\n\
+         \          \n\
+         \          fun aboba(sharik) = {\n\
+         \            val apply_sharik = fun(k) = apply(k, sharik);\n\
+         \            apply_sharik\n\
+         \          }\n\
+         \          ")
+  in
+  let typed_ast = Infer.infer_program ast in
+  let detector = ProgramQuery.get_function_type typed_ast "apply" in
+  [%test_eq: Type.poly] detector
+    (Type.Quant
+       ( [ 0; 1 ],
+         Type.Arrow
+           ([ Type.Arrow ([ Type.TypeVar 0 ], Type.TypeVar 1); Type.TypeVar 0 ], Type.TypeVar 1)
+       ))

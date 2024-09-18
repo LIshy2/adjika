@@ -57,9 +57,4 @@ module InteractorTag : sig
   val comparator : (t, comparator_witness) Comparator.t
 end
 
-val handler_direction :
-  (InteractorTag.t, Interactor.Id.t, 'a) Map.t ->
-  (Cexp.t, 'b) Parsing.Ast.Handler.t ->
-  (Cexp.t, 'b) Interactor.handler
-
 val connect : Cexp.t Texp.TProgram.program -> AProgram.t

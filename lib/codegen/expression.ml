@@ -119,7 +119,7 @@ module LambdaCompiler (LL : LowLevelCtx) = struct
             | Bind.Single s ->
                 let field_ptr =
                   build_struct_gep capture_context_type lambda_instance ind
-                    ("lcapture_" ^ name ^ "_ptr")
+                    (name ^ ".capture.ptr")
                     bd
                 in
                 let _ = build_store s field_ptr bd in
@@ -130,7 +130,7 @@ module LambdaCompiler (LL : LowLevelCtx) = struct
                       let field_ptr =
                         build_struct_gep capture_context_type lambda_instance
                           ind
-                          ("lcapture_" ^ name ^ "_ptr")
+                          (name ^ ".capture.ptr")
                           bd
                       in
                       build_store v field_ptr bd)
@@ -152,7 +152,7 @@ module LambdaCompiler (LL : LowLevelCtx) = struct
       let rec loop ind = function
         | (name, Bind.Single s) :: tail ->
             let field_ptr =
-              build_struct_gep cap.struct_tpe cap.value ind (name ^ "_ptr") bd
+              build_struct_gep cap.struct_tpe cap.value ind (name ^ ".ptr") bd
             in
             let field_value = build_load (type_of s) field_ptr name bd in
             (name, Bind.Single field_value) :: loop (ind + 1) tail
@@ -370,7 +370,7 @@ module MatchCompiler (LL : LowLevelCtx) = struct
     let par_fun = block_parent control_block in
     let flow = generate_blocks cases par_fun in
     build_unmatched_block flow.unmatched;
-    let _ = build_br (List.hd_exn flow.branches) ctx.builder in 
+    let _ = build_br (List.hd_exn flow.branches) ctx.builder in
     let _ =
       let rec loop cases checkers branches =
         match (cases, checkers, branches) with

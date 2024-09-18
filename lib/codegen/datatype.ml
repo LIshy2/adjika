@@ -149,6 +149,7 @@ module SumCompiler (LL : LowLevelCtx) = struct
         (Array.of_list (pointer_type LL.ctx :: fields))
     in
     let constructor_fun = define_function con.name constructor_type LL.md in
+    set_gc (Some "shadow-stack") constructor_fun;
     let bd = builder_at_end LL.ctx (entry_block constructor_fun) in
     let instance = build_malloc layout "instance" bd in
     let tag_ptr =

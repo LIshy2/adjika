@@ -15,7 +15,8 @@ depends: [
   "odoc" {with-doc}
   "core"
   "llvm" {>= "16.0.6+nnp"}  
-  "menhir"
+  "menhir",
+  "ctypes-foreign"
   
 ]
 build: [
