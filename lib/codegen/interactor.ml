@@ -101,6 +101,8 @@ module InteractorCompiler (LL : LowLevelCtx) = struct
   let rec message_type_label = function
     | Type.Actor name -> "act_" ^ name
     | Type.Int -> "i64"
+    | Type.Float -> "f64"
+    | Type.Bool -> "b"
     | Type.MailBox name -> "mail_" ^ name
     | Type.Named name -> name
     | Type.TypeVar id -> "tv_" ^ string_of_int id

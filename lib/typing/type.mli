@@ -3,6 +3,8 @@ open Core
 type mono =
   | TypeVar of int
   | Int
+  | Float
+  | Bool
   | Arrow of mono list * mono
   | Named of string
   | Operator of string * mono list

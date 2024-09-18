@@ -1,5 +1,6 @@
 %token <string> ID
 %token <int> CONST_INT
+%token <float> CONST_FLOAT
 %token LEFT_BRACE
 %token RIGHT_BRACE
 %token LEFT_BRACKET
@@ -26,23 +27,28 @@
 %token SEND
 %token IS
 %token INT
+%token FLOAT
+%token BOOL
 %token PIPE
 %token PLUS
 %token MINUS
 %token MULT
 %token EOF
 
+%left EQUALITY
+%right LEFT_BRACE
 %left PLUS MINUS
 %left MULT
+%left DOT
+
+
 
 
 %start <(Ast.Expr.t, Ast.TypeDecl.t) Ast.Toplevel.decl list> prog
 %%
 
 prog:
-  | declarations = list(toplevel); EOF { declarations }
-  | EOF           { [] }
-  ;
+  declarations = list(toplevel); EOF { declarations }
 
 
 expr:
@@ -95,6 +101,8 @@ tpe:
   | MAILBOX; LEFT_SQBR; name = ID; RIGHT_SQBR { Ast.TypeDecl.MailBox (name) }
   | name = ID; LEFT_SQBR; args = separated_list(COMMA, tpe) RIGHT_SQBR { Ast.TypeDecl.Operator (name, args) }
   | INT { Ast.TypeDecl.Int }
+  | FLOAT { Ast.TypeDecl.Float }
+  | BOOL { Ast.TypeDecl.Bool }
   | LEFT_BRACE; args = separated_list(COMMA, tpe); RIGHT_BRACE; ARROW; result = tpe { Ast.TypeDecl.Arrow (args, result) }
   ;
 
@@ -112,7 +120,7 @@ actor_state:
 
 handler_definition:
   | HANDLER_DEFINITION; message_type = tpe;  WITH; state = ID;  EQUALITY; body = handler_body { Ast.Handler.decl message_type state body }
-  ;
+  ; 
 
 handler_expr:
   | v = val_definition; SEMILICON { let open Ast.Val in Ast.Handler.local v.name v.result }

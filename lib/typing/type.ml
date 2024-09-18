@@ -3,6 +3,8 @@ open Core
 type mono =
   | TypeVar of int
   | Int
+  | Float
+  | Bool
   | Arrow of mono list * mono
   | Named of string
   | Operator of string * mono list
@@ -21,6 +23,8 @@ let compare_poly lhs rhs =
         | TypeVar id ->
             TypeVar (Option.value ~default:id (Map.find quant_id id))
         | Int -> Int
+        | Float -> Float
+        | Bool -> Bool
         | Arrow (args, result) ->
             Arrow (List.map ~f:replace_left args, replace_left result)
         | Named name -> Named name
@@ -37,6 +41,8 @@ let rec show_mono = function
       let args = String.concat ~sep:", " (List.map args ~f:show_mono) in
       "(" ^ args ^ ") -> " ^ show_mono res
   | Int -> "int"
+  | Float -> "float"
+  | Bool -> "bool"
   | Named name -> name
   | Operator (name, args) ->
       name ^ "[" ^ String.concat ~sep:", " (List.map ~f:show_mono args) ^ "]"
@@ -70,6 +76,8 @@ let rec from_decl = function
   | Parsing.Ast.TypeDecl.Arrow (args, result) ->
       Arrow (List.map ~f:from_decl args, from_decl result)
   | Parsing.Ast.TypeDecl.Int -> Int
+  | Parsing.Ast.TypeDecl.Float -> Float
+  | Parsing.Ast.TypeDecl.Bool -> Bool
   | Parsing.Ast.TypeDecl.Custom name -> Named name
   | Parsing.Ast.TypeDecl.Operator (name, args) ->
       Operator (name, List.map ~f:from_decl args)
@@ -79,6 +87,8 @@ let rec from_decl_ctx ctx = function
   | Parsing.Ast.TypeDecl.Arrow (args, result) ->
       Arrow (List.map ~f:(from_decl_ctx ctx) args, from_decl_ctx ctx result)
   | Parsing.Ast.TypeDecl.Int -> Int
+  | Parsing.Ast.TypeDecl.Float -> Float
+  | Parsing.Ast.TypeDecl.Bool -> Bool
   | Parsing.Ast.TypeDecl.Custom name -> (
       match Map.find ctx name with None -> Named name | Some t -> t)
   | Parsing.Ast.TypeDecl.Operator (name, args) ->

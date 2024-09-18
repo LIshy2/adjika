@@ -4,6 +4,8 @@ module TypeDecl = struct
   type t =
     | Arrow of t list * t
     | Int
+    | Float
+    | Bool
     | Custom of string
     | Operator of string * t list
     | MailBox of string

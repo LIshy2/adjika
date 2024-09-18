@@ -2,6 +2,8 @@ module TypeDecl : sig
   type t =
     | Arrow of t list * t
     | Int
+    | Float
+    | Bool
     | Custom of string
     | Operator of string * t list
     | MailBox of string
@@ -35,7 +37,7 @@ end
 
 module Handler : sig
   type 'e statement =
-    | Spawn of {name: string; actor: 'e }
+    | Spawn of { name : string; actor : 'e }
     | Val of { name : string; result : 'e }
     | Mutate of 'e
     | Send of { message : 'e; mail : 'e }

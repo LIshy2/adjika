@@ -4,6 +4,8 @@ open Llvm
 module BindType = struct
   type t =
     | Int
+    | Float
+    | Bool
     | Ptr
     | Arrow of t list * t
     | Named of string

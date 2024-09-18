@@ -38,6 +38,8 @@ module PolyCtx (LL : LowLevelCtx) = struct
 
   let rec type_to_bind (TypeMap map) = function
     | Type.Int -> Bind.BindType.Int
+    | Type.Float -> Bind.BindType.Float
+    | Type.Bool -> Bind.BindType.Bool
     | Type.Arrow (args, result) ->
         Bind.BindType.Arrow
           ( List.map args ~f:(type_to_bind (TypeMap map)),
@@ -54,9 +56,13 @@ module PolyCtx (LL : LowLevelCtx) = struct
 
   let lltype_no_ctx = function
     | Type.Int -> i64_type LL.ctx
+    | Type.Float -> double_type LL.ctx
+    | Type.Bool -> i1_type LL.ctx
     | Type.Arrow (args, result) ->
         let box_type = function
           | Type.Int -> i64_type LL.ctx
+          | Type.Float -> double_type LL.ctx
+          | Type.Bool -> i1_type LL.ctx
           | Type.TypeVar _ -> failwith "Unknown type var"
           | _ -> pointer_type LL.ctx
         in
@@ -71,9 +77,13 @@ module PolyCtx (LL : LowLevelCtx) = struct
 
   let lltype_ref (TypeMap map) = function
     | Type.Int -> i64_type LL.ctx
+    | Type.Float -> double_type LL.ctx
+    | Type.Bool -> i1_type LL.ctx
     | Type.Arrow (args, result) ->
         let box_type = function
           | Type.Int -> i64_type LL.ctx
+          | Type.Float -> double_type LL.ctx
+          | Type.Bool -> i1_type LL.ctx
           | Type.TypeVar id -> spec_to_lltype (Map.find_exn map id)
           | _ -> pointer_type LL.ctx
         in
@@ -88,6 +98,8 @@ module PolyCtx (LL : LowLevelCtx) = struct
 
   let lltype_elem (TypeMap map) = function
     | Type.Int -> i64_type LL.ctx
+    | Type.Float -> double_type LL.ctx
+    | Type.Bool -> i1_type LL.ctx
     | Type.Arrow (_, _) -> pointer_type LL.ctx
     | Type.TypeVar id -> spec_to_lltype (Map.find_exn map id)
     | Type.Named _ -> pointer_type LL.ctx
