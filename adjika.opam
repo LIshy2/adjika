@@ -13,11 +13,6 @@ depends: [
   "ocaml"
   "dune" {>= "3.16"}
   "odoc" {with-doc}
-  "core"
-  "llvm" {>= "16.0.6+nnp"}  
-  "menhir"
-  "ctypes-foreign"
-  
 ]
 build: [
   ["dune" "subst"] {dev}

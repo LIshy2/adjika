@@ -44,7 +44,7 @@
 
 
 
-%start <(Ast.Expr.t, Ast.TypeDecl.t) Ast.Toplevel.decl list> prog
+%start <(Ast.Expr.t, Ast.Expr.t Ast.Val.t, Ast.TypeDecl.t) Ast.Toplevel.decl list> prog
 %%
 
 prog:

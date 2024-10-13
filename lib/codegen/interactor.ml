@@ -44,13 +44,34 @@ module InteractorCompiler (LL : LowLevelCtx) = struct
     let _ =
       List.fold handler.body ~init:context ~f:(fun acc_ctx statement ->
           match statement with
-          | Val { name; result } ->
-              let value = ExpressionComp.compile_expression acc_ctx result in
-              Bind.set_name value name;
+          | Val def ->
+              let name, bind =
+                match def with
+                | Texp.TypedVal.MonoDef (name, expr) ->
+                    ( name,
+                      Bind.Single
+                        (ExpressionComp.compile_expression acc_ctx expr) )
+                | Texp.TypedVal.PolyDef (name, quants, expr) ->
+                    let variants =
+                      TypeCtx.variants LocCtx.(acc_ctx.type_ctx) quants
+                    in
+                    let compiled_variants =
+                      List.map variants ~f:(fun c ->
+                          let new_context =
+                            LocCtx.{ acc_ctx with type_ctx = c }
+                          in
+                          let value =
+                            ExpressionComp.compile_expression new_context expr
+                          in
+                          (TypeCtx.type_to_bind c (Cexp.type_of expr), value))
+                    in
+                    (name, Bind.Versions compiled_variants)
+              in
+              Bind.set_name bind name;
               LocCtx.
                 {
                   acc_ctx with
-                  bind_ctx = BindingCtx.add name value acc_ctx.bind_ctx;
+                  bind_ctx = BindingCtx.add name bind acc_ctx.bind_ctx;
                 }
           | Mutate new_state ->
               let new_state =
@@ -61,35 +82,31 @@ module InteractorCompiler (LL : LowLevelCtx) = struct
               in
               let _ =
                 build_call ActorComp.mutate_type mutator
-                  [| instance; Bind.single_exn new_state |]
-                  "" acc_ctx.builder
+                  [| instance; new_state |] "" acc_ctx.builder
               in
               acc_ctx
           | Spawn { name; actor } ->
               let new_actor = ExpressionComp.compile_expression acc_ctx actor in
-              Bind.set_name new_actor name;
+              set_value_name name new_actor;
               let new_mailbox =
-                Runtime.build_spawn acc_ctx.runtime
-                  (Bind.single_exn new_actor)
-                  "spawn.mailbox" acc_ctx.builder
+                Runtime.build_spawn acc_ctx.runtime new_actor "spawn.mailbox"
+                  acc_ctx.builder
               in
               LocCtx.
                 {
                   acc_ctx with
-                  bind_ctx = BindingCtx.add name (Bind.Single new_mailbox) acc_ctx.bind_ctx;
+                  bind_ctx =
+                    BindingCtx.add name (Bind.Single new_mailbox)
+                      acc_ctx.bind_ctx;
                 }
           | Send { message; mail; destination } ->
               let message_value =
-                Bind.single_exn
-                  (ExpressionComp.compile_expression acc_ctx message)
+                ExpressionComp.compile_expression acc_ctx message
               in
-              let mail_value =
-                Bind.single_exn (ExpressionComp.compile_expression acc_ctx mail)
-              in
+              let mail_value = ExpressionComp.compile_expression acc_ctx mail in
               let handler = Map.find_exn interactor_def destination in
               let _ =
-                Runtime.build_send acc_ctx.runtime
-                  (Type.monotype (Cexp.type_of message))
+                Runtime.build_send acc_ctx.runtime (Cexp.type_of message)
                   mail_value handler message_value "" acc_ctx.builder
               in
 

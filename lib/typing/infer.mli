@@ -1,5 +1,7 @@
+open Parsing
+
 exception NotActor
 
 val infer_program :
-  (Parsing.Ast.Expr.t, Parsing.Ast.TypeDecl.t) Parsing.Ast.Program.t ->
+  (Ast.Expr.t, Ast.Expr.t Ast.Val.t, Ast.TypeDecl.t) Ast.Program.t ->
   Texp.t Texp.TProgram.program

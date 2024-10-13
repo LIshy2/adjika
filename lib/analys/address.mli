@@ -14,24 +14,21 @@ module Interactor : sig
 
   type 'e statement =
     | Spawn of { name : string; actor : 'e }
-    | Val of { name : string; result : 'e }
+    | Val of Cexp.t Texp.TypedVal.t
     | Mutate of 'e
     | Send of { message : 'e; mail : 'e; destination : Id.t }
-  [@@deriving sexp, compare]
 
   type ('e, 't) handler = {
     message_type : 't;
     state : string;
     body : 'e statement list;
   }
-  [@@deriving sexp, compare]
 
   type ('e, 't) t = {
     actor : string;
     id : Id.t;
     handlers : ('e, 't) handler list;
   }
-  [@@deriving sexp, compare]
 
   val handler : 'a -> string -> 'b statement list -> ('b, 'a) handler
   val decl : string -> Id.t -> ('a, 'b) handler list -> ('a, 'b) t

@@ -18,24 +18,21 @@ module Interactor = struct
 
   type 'e statement =
     | Spawn of { name : string; actor : 'e }
-    | Val of { name : string; result : 'e }
+    | Val of Cexp.t Texp.TypedVal.t
     | Mutate of 'e
     | Send of { message : 'e; mail : 'e; destination : Id.t }
-  [@@deriving sexp, compare]
 
   type ('e, 't) handler = {
     message_type : 't;
     state : string;
     body : 'e statement list;
   }
-  [@@deriving sexp, compare]
 
   type ('e, 't) t = {
     actor : string;
     id : Id.t;
     handlers : ('e, 't) handler list;
   }
-  [@@deriving sexp, compare]
 
   let handler message_type state body = { message_type; state; body }
   let decl actor id handlers = { actor; id; handlers }
@@ -68,15 +65,15 @@ let handler_direction interactor_map handler =
     List.map handler.body ~f:(fun statement ->
         match statement with
         | Spawn { name; actor } -> Interactor.Spawn { name; actor }
-        | Val { name; result } -> Interactor.Val { name; result }
+        | Val def -> Interactor.Val def
         | Mutate b -> Interactor.Mutate b
         | Send { message; mail } ->
             let actor_receiver =
               match Cexp.type_of mail with
-              | Type.Mono (Type.MailBox name) -> name
+              | Type.MailBox name -> name
               | _ -> failwith "a"
             in
-            let message_type = Type.monotype (Cexp.type_of message) in
+            let message_type = Cexp.type_of message in
             let destination =
               Map.find_exn interactor_map
                 (InteractorTag.Id (actor_receiver, message_type))

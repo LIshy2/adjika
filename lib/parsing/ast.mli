@@ -35,26 +35,34 @@ module Actor : sig
   val decl : string -> 't state list -> 't t
 end
 
+module Val : sig
+  type 'e t = { name : string; result : 'e } [@@deriving sexp, compare]
+
+  val decl : string -> 'e -> 'e t
+end
+
 module Handler : sig
-  type 'e statement =
+  type ('v, 'e) statement =
     | Spawn of { name : string; actor : 'e }
-    | Val of { name : string; result : 'e }
+    | Val of 'v
     | Mutate of 'e
     | Send of { message : 'e; mail : 'e }
   [@@deriving sexp, compare]
 
-  type ('e, 't) t = {
+  type ('e, 'v, 't) t = {
     message_type : 't;
     state : string;
-    body : 'e statement list;
+    body : ('v, 'e) statement list;
   }
   [@@deriving sexp, compare]
 
-  val spawn : string -> 'e -> 'e statement
-  val local : string -> 'e -> 'e statement
-  val mutate : 'e -> 'e statement
-  val send : 'e -> 'e -> 'e statement
-  val decl : 't -> string -> 'e statement list -> ('e, 't) t
+  val spawn : string -> 'e -> ('e Val.t, 'e) statement
+  val local : string -> 'e -> ('e Val.t, 'e) statement
+  val mutate : 'e -> ('e Val.t, 'e) statement
+  val send : 'e -> 'e -> ('e Val.t, 'e) statement
+
+  val decl :
+    't -> string -> ('e Val.t, 'e) statement list -> ('e, 'e Val.t, 't) t
 end
 
 module Function : sig
@@ -62,12 +70,6 @@ module Function : sig
   [@@deriving sexp, compare]
 
   val decl : string -> string list -> 'e -> 'e t
-end
-
-module Val : sig
-  type 'e t = { name : string; result : 'e } [@@deriving sexp, compare]
-
-  val decl : string -> 'e -> 'e t
 end
 
 module Datatype : sig
@@ -121,22 +123,22 @@ module Expr : sig
 end
 
 module Toplevel : sig
-  type ('e, 't) decl =
+  type ('e, 'v, 't) decl =
     | FunExpression of 'e Function.t
     | TypeDefenition of ('t, string) Datatype.t
     | ActorDefition of 't Actor.t
-    | HandlerDefinition of ('e, 't) Handler.t
+    | HandlerDefinition of ('e, 'v, 't) Handler.t
   [@@deriving sexp, compare]
 end
 
 module Program : sig
-  type ('e, 't) t = {
+  type ('e, 'v, 't) t = {
     functions : 'e Function.t list;
     types : ('t, string) Datatype.t list;
     actors : 't Actor.t list;
-    handlers : ('e, 't) Handler.t list;
+    handlers : ('e, 'v, 't) Handler.t list;
   }
   [@@deriving sexp, compare]
 
-  val from_toplevels : ('a, 'b) Toplevel.decl list -> ('a, 'b) t
+  val from_toplevels : ('e, 'v, 't) Toplevel.decl list -> ('e, 'v, 't) t
 end

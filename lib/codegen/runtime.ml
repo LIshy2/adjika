@@ -8,6 +8,12 @@ type t = {
   send_ptr_type : lltype;
   spawn_actor : llvalue;
   spawn_actor_type : lltype;
+  allocate : llvalue;
+  allocate_type : lltype;
+  dup : llvalue;
+  dup_type : lltype;
+  dedup : llvalue;
+  dedup_type : lltype;
 }
 
 let declare_in_module ctx md =
@@ -22,6 +28,9 @@ let declare_in_module ctx md =
   let spawn_actor_type =
     function_type (pointer_type ctx) [| pointer_type ctx |]
   in
+  let allocate_type = function_type (pointer_type ctx) [| pointer_type ctx |] in
+  let dup_type = function_type (pointer_type ctx) [| pointer_type ctx |] in
+  let dedup_type = function_type (pointer_type ctx) [| pointer_type ctx |] in
   {
     send_int = declare_function "send_int" send_int_type md;
     send_int_type;
@@ -29,6 +38,12 @@ let declare_in_module ctx md =
     send_ptr_type;
     spawn_actor = declare_function "spawn_actor" spawn_actor_type md;
     spawn_actor_type;
+    allocate = declare_function "allocate" allocate_type md;
+    allocate_type;
+    dup = declare_function "dup" dup_type md;
+    dup_type;
+    dedup = declare_function "dedup" dedup_type md;
+    dedup_type;
   }
 
 let init_interactor_body ctx fnty api_fun original_fun =
@@ -57,9 +72,7 @@ let declare_main ctx md =
   let initial_constructor =
     declare_function "Initing.constructor" constructor_type md
   in
-  let api_constructor =
-    define_function "init_main_state" constructor_type md
-  in
+  let api_constructor = define_function "init_main_state" constructor_type md in
   init_constructor_body ctx constructor_type api_constructor initial_constructor;
   ()
 
@@ -78,5 +91,13 @@ let build_send runtime tpe mailbox handler message builder =
   | Type.Int -> build_send_int runtime mailbox handler message builder
   | _ -> build_send_ptr runtime mailbox handler message builder
 
-let build_spawn runtime state builder =
-  build_call runtime.spawn_actor_type runtime.spawn_actor [| state |] builder
+let build_spawn runtime state =
+  build_call runtime.spawn_actor_type runtime.spawn_actor [| state |]
+
+let build_allocate runtime layout_ptr =
+  build_call runtime.allocate_type runtime.allocate [| layout_ptr |]
+
+let build_dup runtime obj = build_call runtime.dup_type runtime.dup [| obj |]
+
+let build_dedup runtime obj =
+  build_call runtime.dedup_type runtime.dedup [| obj |]

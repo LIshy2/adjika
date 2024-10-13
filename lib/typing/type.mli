@@ -12,9 +12,8 @@ type mono =
   | Actor of string
 [@@deriving compare, sexp]
 
-type poly = Mono of mono | Quant of int list * mono [@@deriving sexp]
+type poly = Mono of mono | Quant of int list * mono [@@deriving compare, sexp]
 
-val compare_poly : poly -> poly -> int
 val show_mono : mono -> string
 val show_poly : poly -> string
 val freevars_mono : mono -> (int, Int.comparator_witness) Set.t

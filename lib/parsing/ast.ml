@@ -37,23 +37,29 @@ module Actor = struct
   let decl name states = { name; states }
 end
 
+module Val = struct
+  type 'e t = { name : string; result : 'e } [@@deriving sexp, compare]
+
+  let decl name result = { name; result }
+end
+
 module Handler = struct
-  type 'e statement =
+  type ('v, 'e) statement =
     | Spawn of { name : string; actor : 'e }
-    | Val of { name : string; result : 'e }
+    | Val of 'v
     | Mutate of 'e
     | Send of { message : 'e; mail : 'e }
   [@@deriving sexp, compare]
 
-  type ('e, 't) t = {
+  type ('e, 'v, 't) t = {
     message_type : 't;
     state : string;
-    body : 'e statement list;
+    body : ('v, 'e) statement list;
   }
   [@@deriving sexp, compare]
 
   let spawn name actor = Spawn { name; actor }
-  let local name result = Val { name; result }
+  let local name result = Val Val.{ name; result }
   let mutate build = Mutate build
   let send message mail = Send { message; mail }
   let decl message_type state body = { message_type; state; body }
@@ -64,12 +70,6 @@ module Function = struct
   [@@deriving sexp, compare]
 
   let decl name arguments result = { name; arguments; result }
-end
-
-module Val = struct
-  type 'e t = { name : string; result : 'e } [@@deriving sexp, compare]
-
-  let decl name result = { name; result }
 end
 
 module Datatype = struct
@@ -131,20 +131,20 @@ module Expr = struct
 end
 
 module Toplevel = struct
-  type ('e, 't) decl =
+  type ('e, 'v, 't) decl =
     | FunExpression of 'e Function.t
     | TypeDefenition of ('t, string) Datatype.t
     | ActorDefition of 't Actor.t
-    | HandlerDefinition of ('e, 't) Handler.t
+    | HandlerDefinition of ('e, 'v, 't) Handler.t
   [@@deriving sexp, compare]
 end
 
 module Program = struct
-  type ('e, 't) t = {
+  type ('e, 'v, 't) t = {
     functions : 'e Function.t list;
     types : ('t, string) Datatype.t list;
     actors : 't Actor.t list;
-    handlers : ('e, 't) Handler.t list;
+    handlers : ('e, 'v, 't) Handler.t list;
   }
   [@@deriving sexp, compare]
 

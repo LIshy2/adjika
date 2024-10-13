@@ -16,7 +16,7 @@ let%test_unit "const_int_fun" =
       (Program.from_toplevels
          [ FunExpression (Function.decl "constant" [] (Expr.Const 5)) ])
   in
-  [%test_eq: ((Expr.t, TypeDecl.t) Program.t, string * int * int) result] ast
+  [%test_eq: ((Expr.t, Expr.t Val.t, TypeDecl.t) Program.t, string * int * int) result] ast
     expected
 
 let%test_unit "id_fun" =
@@ -26,7 +26,7 @@ let%test_unit "id_fun" =
       (Program.from_toplevels
          [ Toplevel.FunExpression (Function.decl "id" [ "x" ] (Expr.Var "x")) ])
   in
-  [%test_eq: ((Expr.t, TypeDecl.t) Program.t, string * int * int) result] ast
+  [%test_eq: ((Expr.t, Expr.t Val.t, TypeDecl.t) Program.t, string * int * int) result] ast
     expected
 
 let%test_unit "arithmetic_expr_fun" =
@@ -49,8 +49,9 @@ let%test_unit "arithmetic_expr_fun" =
                          Expr.Const 12 ) )));
          ])
   in
-  [%test_eq: ((Expr.t, TypeDecl.t) Program.t, string * int * int) result] ast
-    expected
+  [%test_eq:
+    ((Expr.t, Expr.t Val.t, TypeDecl.t) Program.t, string * int * int) result]
+    ast expected
 
 let%test_unit "block_expr_fun" =
   let ast =
@@ -94,8 +95,9 @@ let%test_unit "block_expr_fun" =
                };
          ])
   in
-  [%test_eq: ((Expr.t, TypeDecl.t) Program.t, string * int * int) result] ast
-    expected
+  [%test_eq:
+    ((Expr.t, Expr.t Val.t, TypeDecl.t) Program.t, string * int * int) result]
+    ast expected
 
 let%test_unit "lambda_fun" =
   let ast = ast_from_string "fun arithmetic() = fun(x, y) = x + y" in
@@ -115,8 +117,9 @@ let%test_unit "lambda_fun" =
                };
          ])
   in
-  [%test_eq: ((Expr.t, TypeDecl.t) Program.t, string * int * int) result] ast
-    expected
+  [%test_eq:
+    ((Expr.t, Expr.t Val.t, TypeDecl.t) Program.t, string * int * int) result]
+    ast expected
 
 let%test_unit "lambda_fun" =
   let ast = ast_from_string "fun arithmetic() = fun(x, y) = x + y" in
@@ -136,8 +139,9 @@ let%test_unit "lambda_fun" =
                };
          ])
   in
-  [%test_eq: ((Expr.t, TypeDecl.t) Program.t, string * int * int) result] ast
-    expected
+  [%test_eq:
+    ((Expr.t, Expr.t Val.t, TypeDecl.t) Program.t, string * int * int) result]
+    ast expected
 
 let%test_unit "record_type" =
   let ast = ast_from_string "type rec = Point (x: int64, y: int64)" in
@@ -161,8 +165,9 @@ let%test_unit "record_type" =
                  });
          ])
   in
-  [%test_eq: ((Expr.t, TypeDecl.t) Program.t, string * int * int) result] ast
-    expected
+  [%test_eq:
+    ((Expr.t, Expr.t Val.t, TypeDecl.t) Program.t, string * int * int) result]
+    ast expected
 
 let%test_unit "sum_type" =
   let ast =
@@ -203,8 +208,9 @@ let%test_unit "sum_type" =
                  });
          ])
   in
-  [%test_eq: ((Expr.t, TypeDecl.t) Program.t, string * int * int) result] ast
-    expected
+  [%test_eq:
+    ((Expr.t, Expr.t Val.t, TypeDecl.t) Program.t, string * int * int) result]
+    ast expected
 
 let%test_unit "match_expr" =
   let ast =
@@ -277,8 +283,9 @@ let%test_unit "match_expr" =
                };
          ])
   in
-  [%test_eq: ((Expr.t, TypeDecl.t) Program.t, string * int * int) result] ast
-    expected
+  [%test_eq:
+    ((Expr.t, Expr.t Val.t, TypeDecl.t) Program.t, string * int * int) result]
+    ast expected
 
 let%test_unit "field_access" =
   let ast =
@@ -328,5 +335,6 @@ let%test_unit "field_access" =
                };
          ])
   in
-  [%test_eq: ((Expr.t, TypeDecl.t) Program.t, string * int * int) result] ast
-    expected
+  [%test_eq:
+    ((Expr.t, Expr.t Val.t, TypeDecl.t) Program.t, string * int * int) result]
+    ast expected

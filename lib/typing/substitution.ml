@@ -1,5 +1,4 @@
 open Core
-open Parsing
 
 module DSU = struct
   type t = { parent : (int, Type.mono) Hashtbl.t }
@@ -42,8 +41,7 @@ module DSU = struct
         else if li <= ri then
           Hashtbl.set ~key:ri ~data:(Type.TypeVar li) self.parent
         else Hashtbl.set ~key:li ~data:(Type.TypeVar ri) self.parent
-    | Type.TypeVar id, other ->
-        Hashtbl.set ~key:id ~data:other self.parent
+    | Type.TypeVar id, other -> Hashtbl.set ~key:id ~data:other self.parent
     | other, Type.TypeVar id -> Hashtbl.set ~key:id ~data:other self.parent
     | _ -> raise NoUnion
 end
@@ -86,17 +84,20 @@ let apply_poly = function
 
 let rec apply_ast ast dsu =
   match ast with
-  | Texp.Var (name, t) -> Texp.Var (name, apply_poly t dsu)
-  | Texp.Const (value, t) -> Texp.Const (value, apply_poly t dsu)
+  | Texp.Var (name, t) -> Texp.Var (name, apply t dsu)
+  | Texp.Const (value, t) -> Texp.Const (value, apply t dsu)
   | Texp.Oper (binop, lhs, rhs, t) ->
-      Texp.Oper (binop, apply_ast lhs dsu, apply_ast rhs dsu, apply_poly t dsu)
+      Texp.Oper (binop, apply_ast lhs dsu, apply_ast rhs dsu, apply t dsu)
   | Texp.Lambda (arguments, body, t) ->
-      Texp.Lambda (arguments, apply_ast body dsu, apply_poly t dsu)
+      Texp.Lambda (arguments, apply_ast body dsu, apply t dsu)
   | Texp.Field (obj, name, t) ->
-      Texp.Field (apply_ast obj dsu, name, apply_poly t dsu)
+      Texp.Field (apply_ast obj dsu, name, apply t dsu)
   | Texp.Block (vals, result) ->
-      let apply_val Ast.Val.{ name; result } =
-        Ast.Val.{ name; result = apply_ast result dsu }
+      let apply_val = function
+        | Texp.TypedVal.MonoDef (name, e) ->
+            Texp.TypedVal.MonoDef (name, apply_ast e dsu)
+        | Texp.TypedVal.PolyDef (name, quants, e) ->
+            Texp.TypedVal.PolyDef (name, quants, apply_ast e dsu)
       in
       Texp.Block (List.map vals ~f:apply_val, apply_ast result dsu)
   | Texp.PatMatch (obj, cases, t) ->
@@ -109,12 +110,12 @@ let rec apply_ast ast dsu =
       Texp.PatMatch
         ( apply_ast obj dsu,
           List.map cases ~f:(fun (d, e) -> (apply_dec d, apply_ast e dsu)),
-          apply_poly t dsu )
+          apply t dsu )
   | Texp.Apply (f, args, t) ->
       Texp.Apply
         ( apply_ast f dsu,
           List.map args ~f:(fun a -> apply_ast a dsu),
-          apply_poly t dsu )
+          apply t dsu )
 
 exception Uninifiable of (Type.mono * Type.mono)
 

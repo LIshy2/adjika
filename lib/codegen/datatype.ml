@@ -8,15 +8,35 @@ let constructor_type con result =
   let args = List.map con.fields ~f:(fun (_, tpe) -> tpe) in
   Type.Arrow (args, result)
 
+module Layout (LL : LowLevelCtx) = struct
+  let const_layout fields =
+    const_struct LL.ctx
+      (Array.of_list_map fields ~f:(function
+        | Type.Int -> const_int (i8_type LL.ctx) 0
+        | _ -> const_int (i8_type LL.ctx) 1))
+
+  let global_layout name fields =
+    let layout = const_layout fields in
+    define_global (name ^ ".layout") layout LL.md
+
+  let layout_ptr layout = build_struct_gep (type_of layout) layout 0 "lid"
+end
+
+
 module RecordCompiler (LL : LowLevelCtx) = struct
   module PolyMap = PolyCtx (LL)
+  module LayoutBuilder = Layout (LL)
 
   type record = {
     constructor : string * Bind.t;
     accessors : (string * Bind.t) list;
   }
 
-  let compile_constructor tm constructor =
+  let compile_constructor runtime tm constructor =
+    let layout_value =
+      LayoutBuilder.global_layout constructor.name
+        (List.map constructor.fields ~f:(fun (_, t) -> t))
+    in
     let fields =
       List.map constructor.fields ~f:(fun (_, tpe) ->
           PolyMap.lltype_elem tm tpe)
@@ -28,7 +48,8 @@ module RecordCompiler (LL : LowLevelCtx) = struct
     in
     let f = define_function constructor.name constructor_ty LL.md in
     let bd = builder_at_end LL.ctx (entry_block f) in
-    let instance = build_malloc layout "instance" bd in
+    let layout_id = LayoutBuilder.layout_ptr layout_value bd in
+    let instance = Runtime.build_allocate runtime layout_id "instance" bd in
     let _ =
       Array.iteri (params f) ~f:(fun i field_value ->
           if i > 0 then
@@ -42,7 +63,7 @@ module RecordCompiler (LL : LowLevelCtx) = struct
     let _ = build_ret instance bd in
     f
 
-  let compile_acessor layout name ind =
+  let compile_accessor layout name ind =
     let llt = (struct_element_types layout).(ind) in
     let accessor_ty = function_type llt [| pointer_type LL.ctx |] in
     let f = define_function (name ^ ".get") accessor_ty LL.md in
@@ -53,7 +74,7 @@ module RecordCompiler (LL : LowLevelCtx) = struct
     let _ = build_ret field_value bd in
     f
 
-  let compile_record constructor =
+  let compile_record runtime constructor =
     let fields =
       Array.of_list
         (List.map constructor.fields ~f:(fun (_, tpe) ->
@@ -62,20 +83,22 @@ module RecordCompiler (LL : LowLevelCtx) = struct
     let layout = struct_type LL.ctx fields in
     let accessors =
       List.mapi constructor.fields ~f:(fun i (name, _) ->
-          (name, Bind.Single (compile_acessor layout name i)))
+          (name, Bind.Single (compile_accessor layout name i)))
     in
-    let compiled_constructor = compile_constructor PolyMap.empty constructor in
+    let compiled_constructor =
+      compile_constructor runtime PolyMap.empty constructor
+    in
     {
       constructor = (constructor.name, Bind.Single compiled_constructor);
       accessors;
     }
 
-  let compile_poly_record quants constructor result =
+  let compile_poly_record runtime quants constructor result =
     let specs = PolyMap.variants PolyMap.empty quants in
     let compiled_constructor =
       Bind.Versions
         (List.map specs ~f:(fun tm ->
-             let v = compile_constructor tm constructor in
+             let v = compile_constructor runtime tm constructor in
              (PolyMap.type_to_bind tm (constructor_type constructor result), v)))
     in
 
@@ -89,7 +112,7 @@ module RecordCompiler (LL : LowLevelCtx) = struct
                          PolyMap.lltype_elem tm tpe)
                    in
                    let layout = struct_type LL.ctx (Array.of_list fields) in
-                   let v = compile_acessor layout name i in
+                   let v = compile_accessor layout name i in
                    let accessor_type = Type.Arrow ([ result ], field_type) in
                    (PolyMap.type_to_bind tm accessor_type, v))) ))
     in
@@ -98,6 +121,7 @@ end
 
 module SumCompiler (LL : LowLevelCtx) = struct
   module PolyMap = PolyCtx (LL)
+  module LayoutBuilder = Layout (LL)
 
   type sum = {
     checkers : (string * Bind.t) list;
@@ -139,7 +163,11 @@ module SumCompiler (LL : LowLevelCtx) = struct
         let _ = build_ret cmp builder in
         (con.name, Bind.Single checker_fun))
 
-  let compile_constructor tm tt ind con =
+  let compile_constructor runtime tm tt ind con =
+    let layout_value =
+      LayoutBuilder.global_layout con.name
+        (List.map con.fields ~f:(fun (_, t) -> t))
+    in
     let fields =
       List.map con.fields ~f:(fun (_, t) -> PolyMap.lltype_elem tm t)
     in
@@ -149,14 +177,13 @@ module SumCompiler (LL : LowLevelCtx) = struct
         (Array.of_list (pointer_type LL.ctx :: fields))
     in
     let constructor_fun = define_function con.name constructor_type LL.md in
-    set_gc (Some "shadow-stack") constructor_fun;
     let bd = builder_at_end LL.ctx (entry_block constructor_fun) in
-    let instance = build_malloc layout "instance" bd in
+    let layout_id = LayoutBuilder.layout_ptr layout_value bd in
+    let instance = Runtime.build_allocate runtime layout_id "instance" bd in
     let tag_ptr =
       build_struct_gep (struct_type LL.ctx [| tt |]) instance 0 "tag_ptr" bd
     in
     let _ = build_store (const_int tt ind) tag_ptr bd in
-
     let _ =
       Array.iteri (params constructor_fun) ~f:(fun i field_value ->
           if i > 0 then
@@ -168,18 +195,18 @@ module SumCompiler (LL : LowLevelCtx) = struct
     let _ = build_ret instance bd in
     constructor_fun
 
-  let compile_sum constructors =
+  let compile_sum runtime constructors =
     let tags = tag_types constructors in
     let checkers = compile_checkers constructors in
     let tag_type = tag_type constructors in
     let constructors =
       List.mapi constructors ~f:(fun ind con ->
-          let v = compile_constructor PolyMap.empty tag_type ind con in
+          let v = compile_constructor runtime PolyMap.empty tag_type ind con in
           (con.name, Bind.Single v))
     in
     { checkers; constructors; tags }
 
-  let compile_poly_sum quants constructors result =
+  let compile_poly_sum runtime quants constructors result =
     let tags = tag_types constructors in
     let checkers = compile_checkers constructors in
     let specs = PolyMap.variants PolyMap.empty quants in
@@ -188,7 +215,7 @@ module SumCompiler (LL : LowLevelCtx) = struct
       List.mapi constructors ~f:(fun ind con ->
           let s =
             List.map specs ~f:(fun tm ->
-                let v = compile_constructor tm tag_type ind con in
+                let v = compile_constructor runtime tm tag_type ind con in
                 (PolyMap.type_to_bind tm (constructor_type con result), v))
           in
           (con.name, Bind.Versions s))
@@ -205,12 +232,12 @@ module TypeCompiler (LL : LowLevelCtx) = struct
     | Record of RecordCompiler.record
     | Sum of SumCompiler.sum
 
-  let compile_type tpe =
+  let compile_type runtime tpe =
     match tpe with
     | Mono { constructors; _ } -> (
         match constructors with
-        | [ single ] -> Record (RecordCompiler.compile_record single)
-        | multi -> Sum (SumCompiler.compile_sum multi))
+        | [ single ] -> Record (RecordCompiler.compile_record runtime single)
+        | multi -> Sum (SumCompiler.compile_sum runtime multi))
     | Operator { name; constructors; arguments; _ } -> (
         let type_arguments =
           List.map arguments ~f:(fun id -> Type.TypeVar id)
@@ -218,10 +245,10 @@ module TypeCompiler (LL : LowLevelCtx) = struct
         match constructors with
         | [ single ] ->
             Record
-              (RecordCompiler.compile_poly_record arguments single
+              (RecordCompiler.compile_poly_record runtime arguments single
                  (Type.Operator (name, type_arguments)))
         | multi ->
             Sum
-              (SumCompiler.compile_poly_sum arguments multi
+              (SumCompiler.compile_poly_sum runtime arguments multi
                  (Type.Operator (name, type_arguments))))
 end

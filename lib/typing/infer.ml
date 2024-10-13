@@ -8,8 +8,8 @@ let rec w te expr =
   | Ast.Expr.Var name ->
       let%map var_type = Substitution.apply_poly (Tenv.find te name) in
       let instantiated_type = Tenv.Gen.instantiate var_type in
-      Texp.Var (name, Mono instantiated_type)
-  | Ast.Expr.Const value -> return (Texp.Const (value, Mono Type.Int))
+      Texp.Var (name, instantiated_type)
+  | Ast.Expr.Const value -> return (Texp.Const (value, Type.Int))
   | Ast.Expr.Lambda (arguments, body) ->
       let arguments_types =
         List.init (List.length arguments) ~f:(fun _ -> Tenv.Gen.new_var ())
@@ -22,45 +22,37 @@ let rec w te expr =
       let%bind typed_body = w body_env body in
       let%map lambda_type =
         Substitution.apply
-          (Type.Arrow (arguments_types, Type.monotype (Texp.type_of typed_body)))
+          (Type.Arrow (arguments_types, Texp.type_of typed_body))
       in
-      Texp.Lambda (arguments, typed_body, Mono lambda_type)
+      Texp.Lambda (arguments, typed_body, lambda_type)
   | Ast.Expr.Apply (func, arguments) ->
       let%bind typed_fun = w te func in
       let%bind typed_args = Substitution.compose_list arguments ~f:(w te) in
-      let arg_types =
-        List.map typed_args ~f:(fun texp -> Type.monotype (Texp.type_of texp))
-      in
-      let%bind fun_type =
-        Substitution.apply (Type.monotype (Texp.type_of typed_fun))
-      in
+      let arg_types = List.map typed_args ~f:(fun texp -> Texp.type_of texp) in
+      let%bind fun_type = Substitution.apply (Texp.type_of typed_fun) in
       let return_type = Tenv.Gen.new_var () in
       let%bind _ =
         Substitution.unify (Type.Arrow (arg_types, return_type)) fun_type
       in
       let%map application_type = Substitution.apply return_type in
-      Texp.Apply (typed_fun, typed_args, Mono application_type)
+      Texp.Apply (typed_fun, typed_args, application_type)
   | Ast.Expr.Oper (bop, lhs, rhs) ->
       let%bind lt = w te lhs in
       let%bind rt = w te rhs in
-      let%bind _ =
-        Substitution.unify Type.Int (Type.monotype (Texp.type_of lt))
-      in
-      let%map _ =
-        Substitution.unify Type.Int (Type.monotype (Texp.type_of rt))
-      in
-      Texp.Oper (bop, lt, rt, Mono Type.Int)
+      let%bind _ = Substitution.unify Type.Int (Texp.type_of lt) in
+      let%map _ = Substitution.unify Type.Int (Texp.type_of rt) in
+      Texp.Oper (bop, lt, rt, Type.Int)
   | Ast.Expr.Field (str, field) ->
       let%bind str = w te str in
       let accessor = Tenv.Gen.instantiate (Tenv.find_field te field) in
       let new_type_id = Tenv.Gen.new_var () in
       let%bind _ =
         Substitution.unify
-          (Type.Arrow ([ Type.monotype (Texp.type_of str) ], new_type_id))
+          (Type.Arrow ([ Texp.type_of str ], new_type_id))
           accessor
       in
       let%map field_type = Substitution.apply new_type_id in
-      Texp.Field (str, field, Mono field_type)
+      Texp.Field (str, field, field_type)
   | Ast.Expr.PatMatch (obj, cases) ->
       let%bind tobj = w te obj in
       let%bind typed_cases =
@@ -100,9 +92,7 @@ let rec w te expr =
                   in
                   (env, deconstructor)
             in
-            let%bind obj_type =
-              Substitution.apply (Type.monotype (Texp.type_of tobj))
-            in
+            let%bind obj_type = Substitution.apply (Texp.type_of tobj) in
             let%bind names, deconstructor = extract d obj_type in
             let case_env =
               Map.fold names ~init:te ~f:(fun ~key:name ~data:tpe acc ->
@@ -113,22 +103,19 @@ let rec w te expr =
       in
       let%bind expected_type =
         Substitution.apply
-          (Type.monotype
-             (Texp.type_of
-                (let _, c = List.hd_exn typed_cases in
-                 c)))
+          (Texp.type_of
+             (let _, c = List.hd_exn typed_cases in
+              c))
       in
       let%bind _ =
         List.fold_left typed_cases ~init:(return ()) ~f:(fun sub_acc (_, t) ->
             let%bind _ = sub_acc in
-            let%bind branch_type =
-              Substitution.apply (Type.monotype (Texp.type_of t))
-            in
+            let%bind branch_type = Substitution.apply (Texp.type_of t) in
             let%bind expected = Substitution.apply expected_type in
             Substitution.unify branch_type expected)
       in
       let%map result_type = Substitution.apply expected_type in
-      Texp.PatMatch (tobj, typed_cases, Mono result_type)
+      Texp.PatMatch (tobj, typed_cases, result_type)
   | Ast.Expr.Block (defs, result) ->
       let%bind rnew_defs, new_te =
         List.fold_left defs
@@ -136,11 +123,17 @@ let rec w te expr =
           ~f:(fun acc Ast.Val.{ name; result } ->
             let%bind defs, type_env = acc in
             let%map typed_expr = w type_env result in
-            let generialized = Texp.generealize type_env typed_expr in
-            let update_env =
-              Tenv.add name (Texp.type_of generialized) type_env
+            let generialized =
+              Tenv.generealize type_env (Texp.type_of typed_expr)
             in
-            (Ast.Val.{ name; result = generialized } :: defs, update_env))
+            let update_env = Tenv.add name generialized type_env in
+            let typed_def =
+              match generialized with
+              | Mono _ -> Texp.TypedVal.MonoDef (name, typed_expr)
+              | Quant (quants, _) ->
+                  Texp.TypedVal.PolyDef (name, quants, typed_expr)
+            in
+            (typed_def :: defs, update_env))
       in
       let%map typed_result = w new_te result in
       let typed_defs = List.rev rnew_defs in
@@ -173,37 +166,37 @@ let infer_handler te actor state_description handler =
         | Spawn { name; actor = new_state } ->
             let%bind typed_actor = w te new_state in
             let%bind state_type =
-              Substitution.apply (Type.monotype (Texp.type_of typed_actor))
+              Substitution.apply (Texp.type_of typed_actor)
             in
             let%map _ = Substitution.unify (Type.Actor "?") state_type in
             let actor_type =
-              Type.Mono
-                (actor_to_mailbox (Type.monotype (Texp.type_of typed_actor)))
+              Type.Mono (actor_to_mailbox (Texp.type_of typed_actor))
             in
             let update_env = te |> Tenv.add name actor_type in
             (update_env, Spawn { name; actor = typed_actor } :: state_acc)
-        | Val { name; result } ->
+        | Val Ast.Val.{ name; result } ->
             let%map texpr = w te result in
-            let generialized = Texp.generealize te texpr in
-            let expr_type = Texp.type_of generialized in
-            let update_env = te |> Tenv.add name expr_type in
-            (update_env, Val { name; result = generialized } :: state_acc)
+            let gen_type = Tenv.generealize te (Texp.type_of texpr) in
+            let update_env = te |> Tenv.add name gen_type in
+            let def =
+              match gen_type with
+              | Type.Mono _ -> Texp.TypedVal.MonoDef (name, texpr)
+              | Type.Quant (quants, _) ->
+                  Texp.TypedVal.PolyDef (name, quants, texpr)
+            in
+            (update_env, Val def :: state_acc)
         | Mutate new_state ->
             let%bind tb = w te new_state in
-            let generialized = Texp.generealize te tb in
-            let state_type = Type.monotype (Texp.type_of tb) in
+            let state_type = Texp.type_of tb in
             let%map _ = Substitution.unify (Type.Actor actor) state_type in
-            (te, Mutate generialized :: state_acc)
+            (te, Mutate tb :: state_acc)
         | Send { message; mail } ->
             let%bind typed_message = w te message in
             let%bind typed_mail = w te mail in
-            let%bind mail_type =
-              Substitution.apply (Type.monotype (Texp.type_of typed_mail))
-            in
+            let%bind mail_type = Substitution.apply (Texp.type_of typed_mail) in
             let%map _ = Substitution.unify mail_type (Type.MailBox "?") in
-            ( te,
-              Send { message = typed_message; mail = typed_mail } :: state_acc
-            ))
+            let send = Send { message = typed_message; mail = typed_mail } in
+            (te, send :: state_acc))
   in
   { message_type; state = handler.state; body = List.rev rbody }
 
@@ -444,9 +437,7 @@ let infer_program program =
            in
            let%bind infered_body = w body_env result in
            let body_type = Texp.type_of infered_body in
-           let%bind _ =
-             Substitution.unify (Type.monotype body_type) result_type
-           in
+           let%bind _ = Substitution.unify body_type result_type in
            let%bind finalize_body = Substitution.apply_ast infered_body in
            let%map final_type =
              Substitution.apply (Type.monotype function_type)

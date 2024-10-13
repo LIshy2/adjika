@@ -7,25 +7,32 @@ open Context
 
 module VarCompiler (LL : LowLevelCtx) = struct
   module CC = CompilerCtx (LL)
+  module TypeMap = PolyCtx (LL)
 
-  let compile_var CC.{ bind_ctx; builder; _ } name =
-    match BindingCtx.find bind_ctx name with
-    | BindingCtx.Local local -> local
-    | BindingCtx.Top top -> (
-        let build_capture var_value =
-          let fun_str_tpe = struct_type LL.ctx [| pointer_type LL.ctx |] in
-          let instance = build_malloc fun_str_tpe (name ^ ".inst") builder in
-          let _ = build_store var_value instance builder in
-          instance
-        in
-        match top with
-        | Versions v ->
-            Versions (List.map v ~f:(fun (t, v) -> (t, build_capture v)))
-        | Single s -> Single (build_capture s))
+  let find_var_value type_ctx bind realization_type =
+    let representation = TypeMap.type_to_bind type_ctx realization_type in
+    Bind.realization bind representation
+
+  let compile_var CC.{ bind_ctx; builder; type_ctx; runtime; _ } name tpe =
+    let result =
+      match BindingCtx.find bind_ctx name with
+      | BindingCtx.Local local -> find_var_value type_ctx local tpe
+      | BindingCtx.Top top ->
+          let build_capture var_value =
+            let fun_str_tpe = struct_type LL.ctx [| pointer_type LL.ctx |] in
+            let instance = build_malloc fun_str_tpe (name ^ ".inst") builder in
+            let _ = build_store var_value instance builder in
+            instance
+          in
+          build_capture (find_var_value type_ctx top tpe)
+    in
+    match tpe with
+    | Type.Int -> result
+    | _ -> Runtime.build_dup runtime result name builder
 end
 
 module ConstCompiler (LL : LowLevelCtx) = struct
-  let compile_const value = Bind.Single (const_int (i64_type LL.ctx) value)
+  let compile_const value = const_int (i64_type LL.ctx) value
 end
 
 module OperatorCompiler (LL : LowLevelCtx) = struct
@@ -38,28 +45,14 @@ module OperatorCompiler (LL : LowLevelCtx) = struct
       | Minus -> (build_sub, "minus")
       | Mult -> (build_mul, "mult")
     in
-    let lvalue = Bind.single_exn (compiler lhs) in
-    let rvalue = Bind.single_exn (compiler rhs) in
-    Bind.Single (command lvalue rvalue name builder)
+    let lvalue = compiler lhs in
+    let rvalue = compiler rhs in
+    command lvalue rvalue name builder
 end
 
 module ApplyCompiler (LL : LowLevelCtx) = struct
   module TypeMap = PolyCtx (LL)
   module CC = CompilerCtx (LL)
-
-  exception UnfoundRealization
-
-  let find_realization type_ctx bind realization_type =
-    match bind with
-    | Bind.Single mono_fun -> mono_fun
-    | Bind.Versions specializations -> (
-        let type_repr = TypeMap.type_to_bind type_ctx realization_type in
-        match
-          List.find specializations ~f:(fun (fun_tpe, _) ->
-              Bind.BindType.compare fun_tpe type_repr = 0)
-        with
-        | Some (_, found) -> found
-        | None -> raise UnfoundRealization)
 
   let boxed_call builder fun_tpy fun_val arg_vals =
     let function_struct = struct_type LL.ctx [| pointer_type LL.ctx |] in
@@ -74,18 +67,12 @@ module ApplyCompiler (LL : LowLevelCtx) = struct
       "apply" builder
 
   let compile_apply compiler CC.{ builder; type_ctx; _ } fun_value arg_values =
-    let spec_tpe = Type.monotype (Cexp.type_of fun_value) in
-    let fun_bind = compiler fun_value in
-    (* replace single_exn with find_realization *)
-    let arguments_values =
-      List.map arg_values ~f:(fun arg -> Bind.single_exn (compiler arg))
-    in
-    let fun_realization = find_realization type_ctx fun_bind spec_tpe in
+    let spec_tpe = Cexp.type_of fun_value in
+    let fun_value = compiler fun_value in
+    let arguments_values = List.map arg_values ~f:(fun arg -> compiler arg) in
     let function_type = TypeMap.lltype_ref type_ctx spec_tpe in
-    let call =
-      boxed_call builder function_type fun_realization arguments_values
-    in
-    Bind.Single call
+    let call = boxed_call builder function_type fun_value arguments_values in
+    call
 end
 
 module LambdaCompiler (LL : LowLevelCtx) = struct
@@ -119,8 +106,7 @@ module LambdaCompiler (LL : LowLevelCtx) = struct
             | Bind.Single s ->
                 let field_ptr =
                   build_struct_gep capture_context_type lambda_instance ind
-                    (name ^ ".capture.ptr")
-                    bd
+                    (name ^ ".capture.ptr") bd
                 in
                 let _ = build_store s field_ptr bd in
                 ind + 1
@@ -129,9 +115,7 @@ module LambdaCompiler (LL : LowLevelCtx) = struct
                   List.mapi v ~f:(fun ind (_, v) ->
                       let field_ptr =
                         build_struct_gep capture_context_type lambda_instance
-                          ind
-                          (name ^ ".capture.ptr")
-                          bd
+                          ind (name ^ ".capture.ptr") bd
                       in
                       build_store v field_ptr bd)
                 in
@@ -189,10 +173,10 @@ module LambdaCompiler (LL : LowLevelCtx) = struct
         }
     in
     let lambda_result = compiler lambda_ctx body in
-    let _ = build_ret (Bind.single_exn lambda_result) CC.(ctx.builder) in
+    let _ = build_ret lambda_result CC.(ctx.builder) in
     ()
 
-  let compile_mono_lambda compiler ctx captures arguments body lambda_type =
+  let compile_lambda compiler ctx captures arguments body lambda_type =
     let lambda_function_tpy =
       TypeMap.lltype_ref CC.(ctx.type_ctx) lambda_type
     in
@@ -217,65 +201,73 @@ module LambdaCompiler (LL : LowLevelCtx) = struct
       CC.{ ctx with builder = lambda_bd }
       Capture.{ cap with value = context_value }
       arguments arguments_values body;
-    Bind.Single cap.value
-
-  let compile_poly_lambda compiler ctx captures arguments result ids tpe =
-    let variants = TypeMap.variants CC.(ctx.type_ctx) ids in
-    let compiled_variants =
-      List.map variants ~f:(fun c ->
-          let new_context = CC.{ ctx with type_ctx = c } in
-          compiler new_context
-            (Cexp.Lambda (captures, arguments, result, Mono tpe)))
-    in
-    let specialized =
-      List.map2_exn variants compiled_variants ~f:(fun tc spec ->
-          (TypeMap.type_to_bind tc tpe, Bind.single_exn spec))
-    in
-    Bind.Versions specialized
+    cap.value
 end
 
 module BlockCompiler (LL : LowLevelCtx) = struct
   module CC = CompilerCtx (LL)
+  module TypeMap = PolyCtx (LL)
 
   let compile_block compiler ctx defs result =
-    let compile_def Val.{ name; result } dctx =
-      let result_value = compiler dctx result in
-      let _ =
-        match result_value with
-        | Bind.Single s ->
-            set_value_name name s;
-            ()
-        | Bind.Versions v ->
-            List.iter v ~f:(fun (_, v) -> set_value_name name v);
-            ()
-      in
-      (name, result_value)
-    in
-    let new_context =
-      List.fold_left defs ~init:ctx ~f:(fun acc_ctx def ->
-          let name, value = compile_def def acc_ctx in
-          let new_context =
-            CC.
-              { ctx with bind_ctx = BindingCtx.add name value acc_ctx.bind_ctx }
+    let compile_def dctx = function
+      | Texp.TypedVal.MonoDef (name, expr) ->
+          let result_value = compiler dctx expr in
+          let bind_type =
+            TypeMap.type_to_bind CC.(dctx.type_ctx) (Cexp.type_of expr)
           in
-          new_context)
+          let bind = Bind.Single result_value in
+          let resource = Scope.Resources.single result_value bind_type in
+          (name, bind, resource)
+      | Texp.TypedVal.PolyDef (name, quants, expr) ->
+          let variants = TypeMap.variants CC.(dctx.type_ctx) quants in
+          let compiled_variants =
+            List.map variants ~f:(fun c ->
+                let new_context = CC.{ dctx with type_ctx = c } in
+                let value = compiler new_context expr in
+                (TypeMap.type_to_bind c (Cexp.type_of expr), value))
+          in
+          let resources =
+            Scope.Resources.of_list
+              (List.map compiled_variants ~f:(fun (t, v) ->
+                   Scope.Resources.obj v t))
+          in
+          (name, Bind.Versions compiled_variants, resources)
     in
-    compiler new_context result
+    let new_context, resources =
+      List.fold_left defs
+        ~init:(ctx, Scope.Resources.of_list [])
+        ~f:(fun (acc_ctx, acc_res) def ->
+          let name, bind, resources = compile_def acc_ctx def in
+          Bind.set_name bind name;
+          let new_ctx =
+            CC.{ ctx with bind_ctx = BindingCtx.add name bind acc_ctx.bind_ctx }
+          in
+          (new_ctx, Scope.Resources.concat resources acc_res))
+    in
+    let block_result = compiler new_context result in
+    let _ = Scope.desctruct resources ctx.runtime ctx.builder in
+    block_result
 end
 
 module FieldCompiler (LL : LowLevelCtx) = struct
   module CC = CompilerCtx (LL)
   module TypeMap = PolyCtx (LL)
 
-  let compile_field compiler CC.{ bind_ctx; builder; type_ctx; _ } str name tpe
-      =
-    let str_val = Bind.single_exn (compiler str) in
-    let accessor = Bind.single_exn (BindingCtx.accessor bind_ctx name) in
+  let compile_field compiler CC.{ bind_ctx; builder; type_ctx; runtime; _ } str
+      name tpe =
+    let str_val = compiler str in
+    let accessor_bind = BindingCtx.accessor bind_ctx name in
+    let accessor_type =
+      TypeMap.type_to_bind type_ctx (Type.Arrow ([ Cexp.type_of str ], tpe))
+    in
+    let accessor = Bind.realization accessor_bind accessor_type in
     let fnty =
       function_type (TypeMap.lltype_ref type_ctx tpe) [| pointer_type LL.ctx |]
     in
     let call = build_call fnty accessor [| str_val |] name builder in
-    Bind.Single call
+    match tpe with
+    | Type.Int -> call
+    | _ -> Runtime.build_dup runtime call name builder
 end
 
 module MatchCompiler (LL : LowLevelCtx) = struct
@@ -365,7 +357,7 @@ module MatchCompiler (LL : LowLevelCtx) = struct
     ()
 
   let compile_match compiler ctx obj cases =
-    let obj = Bind.single_exn (compiler ctx obj) in
+    let obj = compiler ctx obj in
     let control_block = insertion_block ctx.builder in
     let par_fun = block_parent control_block in
     let flow = generate_blocks cases par_fun in
@@ -403,22 +395,20 @@ module MatchCompiler (LL : LowLevelCtx) = struct
             extract_values ctx.tag_ctx ctx.type_ctx deconstr obj builder
           in
           let result =
-            Bind.single_exn
-              (compiler
-                 {
-                   ctx with
-                   builder;
-                   bind_ctx =
-                     BindingCtx.append_locals ctx.bind_ctx extract_names;
-                 }
-                 expr)
+            compiler
+              {
+                ctx with
+                builder;
+                bind_ctx = BindingCtx.append_locals ctx.bind_ctx extract_names;
+              }
+              expr
           in
           let _ = build_br flow.after builder in
           (result, branch))
     in
     ctx.builder <- builder_at_end LL.ctx flow.after;
     let phi_node = build_phi branch_results ".match_result" ctx.builder in
-    Bind.Single phi_node
+    phi_node
 end
 
 module ExpressionCompiler (LL : LowLevelCtx) = struct
@@ -433,23 +423,19 @@ module ExpressionCompiler (LL : LowLevelCtx) = struct
 
   let rec compile_expression ctx expr =
     match expr with
-    | Cexp.Var (name, _) -> VarC.compile_var ctx name
+    | Cexp.Var (name, tpe) -> VarC.compile_var ctx name tpe
     | Cexp.Const (value, _) -> ConstC.compile_const value
     | Cexp.Oper (bop, lhs, rhs, _) ->
         OperC.compile_operator (compile_expression ctx) ctx bop lhs rhs
     | Cexp.Apply (fu, arguments, _) ->
         ApplyC.compile_apply (compile_expression ctx) ctx fu arguments
-    | Cexp.Lambda (captures, arguments, result, Quant (ids, tpe)) ->
-        LambdaC.compile_poly_lambda compile_expression ctx captures arguments
-          result ids tpe
-    | Cexp.Lambda (captures, arguments, result, Mono lambda_type) ->
-        LambdaC.compile_mono_lambda compile_expression ctx captures arguments
-          result lambda_type
+    | Cexp.Lambda (captures, arguments, result, lambda_type) ->
+        LambdaC.compile_lambda compile_expression ctx captures arguments result
+          lambda_type
     | Cexp.PatMatch (obj, cases, _) ->
         PatMatchC.compile_match compile_expression ctx obj cases
     | Cexp.Block (defs, result) ->
         BlockC.compile_block compile_expression ctx defs result
     | Cexp.Field (str, name, tpe) ->
-        FieldC.compile_field (compile_expression ctx) ctx str name
-          (Type.monotype tpe)
+        FieldC.compile_field (compile_expression ctx) ctx str name tpe
 end

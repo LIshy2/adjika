@@ -5,14 +5,14 @@ open Result.Let_syntax
 
 module Cexp = struct
   type t =
-    | Var of string * Type.poly
-    | Const of int * Type.poly
-    | Oper of Ast.BinOp.t * t * t * Type.poly
-    | Block of t Ast.Val.t list * t
-    | Field of t * string * Type.poly
-    | Apply of t * t list * Type.poly
-    | PatMatch of t * (Texp.Deconstructor.t * t) list * Type.poly
-    | Lambda of (string * Type.poly) list * string list * t * Type.poly
+    | Var of string * Type.mono
+    | Const of int * Type.mono
+    | Oper of Ast.BinOp.t * t * t * Type.mono
+    | Block of t Texp.TypedVal.t list * t
+    | Field of t * string * Type.mono
+    | Apply of t * t list * Type.mono
+    | PatMatch of t * (Texp.Deconstructor.t * t) list * Type.mono
+    | Lambda of (string * Type.mono) list * string list * t * Type.mono
 
   let rec show ?(indent = 0) = function
     | Var (name, _) -> name
@@ -21,10 +21,15 @@ module Cexp = struct
         let op_sym = match op with Plus -> "+" | Minus -> "-" | Mult -> "*" in
         show lhs ^ " " ^ op_sym ^ " " ^ show rhs
     | Block (defs, result) ->
-        let show_def Ast.Val.{ name; result } =
-          String.make ((indent + 1) * 4) ' '
-          ^ name ^ " = "
-          ^ show ~indent:(indent + 1) result
+        let show_def = function
+          | Texp.TypedVal.MonoDef (name, result) ->
+              String.make ((indent + 1) * 4) ' '
+              ^ name ^ " = "
+              ^ show ~indent:(indent + 1) result
+          | Texp.TypedVal.PolyDef (name, _, result) ->
+              String.make ((indent + 1) * 4) ' '
+              ^ name ^ " = "
+              ^ show ~indent:(indent + 1) result
         in
         "{\n"
         ^ String.concat ~sep:"\n" (List.map defs ~f:show_def)
@@ -105,13 +110,21 @@ let rec capture_expr nctx = function
       let%bind rev_cdefs, block_ctx =
         List.fold_left defs
           ~init:(Result.Ok ([], nctx))
-          ~f:(fun acc Ast.Val.{ name; result } ->
+          ~f:(fun acc def ->
+            let name, result, def =
+              match def with
+              | Texp.TypedVal.MonoDef (name, result) ->
+                  (name, result, fun e -> Texp.TypedVal.MonoDef (name, e))
+              | Texp.TypedVal.PolyDef (name, quants, result) ->
+                  ( name,
+                    result,
+                    fun e -> Texp.TypedVal.PolyDef (name, quants, e) )
+            in
             let%bind prev, block_context = acc in
             if not (NameContext.name_check block_context name) then
               let%bind current = capture_expr block_context result in
               Result.Ok
-                ( Ast.Val.{ name; result = current } :: prev,
-                  NameContext.add_local block_context name )
+                (def current :: prev, NameContext.add_local block_context name)
             else Result.Error (UsedName name))
       in
       let%bind cresult = capture_expr block_ctx result in
@@ -139,7 +152,8 @@ let rec capture_expr nctx = function
         | Texp.Block (defs, result) ->
             let def_capture =
               List.concat
-                (List.map defs ~f:(fun symbol -> caught symbol.result))
+                (List.map defs ~f:(fun symbol ->
+                     caught (Texp.TypedVal.expression symbol)))
             in
             let result_capture = caught result in
             List.append def_capture result_capture
@@ -190,10 +204,18 @@ let capture_handler nctx handler =
             let%bind cmessage = capture_expr ctx_acc message in
             let%map cmail = capture_expr ctx_acc mail in
             (ctx_acc, Send { message = cmessage; mail = cmail } :: s_acc)
-        | Val { name; result } ->
+        | Val typed_val ->
+            let name, result, def =
+              match typed_val with
+              | Texp.TypedVal.MonoDef (name, result) ->
+                  (name, result, fun e -> Texp.TypedVal.MonoDef (name, e))
+              | Texp.TypedVal.PolyDef (name, quants, result) ->
+                  ( name,
+                    result,
+                    fun e -> Texp.TypedVal.PolyDef (name, quants, e) )
+            in
             let%map cresult = capture_expr ctx_acc result in
-            ( NameContext.add_local ctx_acc name,
-              Val { name; result = cresult } :: s_acc ))
+            (NameContext.add_local ctx_acc name, Val (def cresult) :: s_acc))
   in
   { handler with body = List.rev rbody }
 

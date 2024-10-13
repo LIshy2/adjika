@@ -21,7 +21,7 @@ module TopLevelCompiler (LL : LowLevelCtx) = struct
   module InteractorComp = InteractorCompiler (LL)
 
   let compile_function ctx fn = FunComp.compile_function ctx fn
-  let compile_type tpe = TypeComp.compile_type tpe
+  let compile_type runtime tpe = TypeComp.compile_type runtime tpe
   let compile_actor actor = ActorComp.compile_actor actor
 
   let compile_interactor ctx interactors =
@@ -72,13 +72,13 @@ module PartialEnv (LL : LowLevelCtx) = struct
           tag_types;
           actor_states;
           actor_mutators;
-        } =
+        } runtime =
       TLC.
         {
           tag_ctx = TagMap.of_lists checkers tag_types;
           bind_ctx = BindingCtx.of_lists ~accessors ~toplevels ~locals:[];
           actor_ctx = ActorContext.of_lists actor_states actor_mutators;
-          runtime = Runtime.declare_in_module LL.ctx LL.md;
+          runtime;
         }
 
     let new_function name value = { empty with toplevels = [ (name, value) ] }
@@ -138,9 +138,10 @@ module ProgramCompiler = struct
     let module PE = PartialEnv (LL) in
     let open PE.Syntax in
     let open AProgram in
+    let runtime = Runtime.declare_in_module LL.ctx LL.md in
     let types_env =
       List.fold_left program.types ~init:PE.empty ~f:(fun acc t ->
-          match TopComp.compile_type t with
+          match TopComp.compile_type runtime t with
           | Record { constructor; accessors } ->
               let name, value = constructor in
               acc ++ new_constructor name value ++ new_accessors accessors
@@ -166,7 +167,7 @@ module ProgramCompiler = struct
           acc
           ++ new_function typed_fun.name (FunComp.declare_function typed_fun))
     in
-    let ctx = finalize functions_env in
+    let ctx = finalize functions_env runtime in
     let _ = List.map program.functions ~f:(TopComp.compile_function ctx) in
     let _ = TopComp.compile_interactor ctx program.interactors in
     Runtime.declare_main LL.ctx LL.md;

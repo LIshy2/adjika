@@ -16,7 +16,9 @@ module ProgramQuery = struct
     match fn.expr with
     | Texp.Block (defs, _) ->
         Texp.type_of
-          (List.find_exn defs ~f:(fun def -> String.equal def.name name)).result
+          (Texp.TypedVal.expression
+             (List.find_exn defs ~f:(fun def ->
+                  String.equal (Texp.TypedVal.name def) name)))
     | _ -> failwith "non_block"
 end
 
@@ -76,9 +78,9 @@ let%test_unit "block_expr_fun" =
     ProgramQuery.get_local_type typed_ast "arithmetic" "result"
   in
   [%test_eq: Type.poly] fun_tpe (Type.Mono (Type.Arrow ([], Type.Int)));
-  [%test_eq: Type.poly] x_tpe (Type.Mono Type.Int);
-  [%test_eq: Type.poly] y_tpe (Type.Mono Type.Int);
-  [%test_eq: Type.poly] result_tpe (Type.Mono Type.Int)
+  [%test_eq: Type.mono] x_tpe Type.Int;
+  [%test_eq: Type.mono] y_tpe Type.Int;
+  [%test_eq: Type.mono] result_tpe Type.Int
 
 let%test_unit "return_fun" =
   let ast =
@@ -368,5 +370,5 @@ let%test_unit "polymorhipc_with_extra_type_var" =
     (Type.Quant
        ( [ 0; 1 ],
          Type.Arrow
-           ([ Type.Arrow ([ Type.TypeVar 0 ], Type.TypeVar 1); Type.TypeVar 0 ], Type.TypeVar 1)
-       ))
+           ( [ Type.Arrow ([ Type.TypeVar 0 ], Type.TypeVar 1); Type.TypeVar 0 ],
+             Type.TypeVar 1 ) ))
