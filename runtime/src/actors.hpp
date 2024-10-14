@@ -75,7 +75,7 @@ class Actor {
 };
 
 struct GlobalState { 
-    BS::thread_pool pool;
+    BS::thread_pool pool((unsigned int) 1);
     std::atomic<int> live;
 
     void live_loop() {
